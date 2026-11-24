@@ -79,8 +79,14 @@ role or item. Rows 7 to 9 only run when there is an issue date.
 | Exactly 0 days until eligible | approve | Eligible today |
 | Contractor asks for a laptop they've never had | deny | The prohibition is checked before "never had it" |
 | Several units of one item (e.g. two monitors) | uses the newest date | Each unit is a record. The most recent `issued_date` wins. |
+| Asks for a second monitor, last one issued 1 year ago | deny, `DENY_TOO_EARLY` | An additional unit is evaluated the same as a refresh |
 | Unknown employee, role or item | escalate | Policy can't be applied |
 | Reason mentions a medical, accessibility or safety need | **always escalate** | See R-40 below |
+
+**Additional units.** An additional unit (for example a second monitor) is evaluated the same
+as a refresh. The refresh cycle limits how often any unit of that item type is issued, which
+matches the lab's example policy (one monitor every 3 years). Exceptions for genuine need go
+to a human.
 
 **R-40 Accommodation override.** If the reason cites a medical, accessibility or safety need,
 the decision is **escalate** with `reason_code` `ESCALATE_ACCOMMODATION`. This applies whatever
@@ -139,8 +145,9 @@ The example is shortened. All five items are always listed. Not found:
 ```
 - Ticket numbers count up: `ESC-0001`, `ESC-0002`, and so on.
 - Unknown employee IDs are still accepted, so they can be escalated.
-- An empty `request` or `reason` returns `{"flagged": false, "error": "reason is required"}`,
-  and nothing is written.
+- An empty `request` or `reason` writes nothing and returns an error naming the missing
+  field: `{"flagged": false, "error": "request is required"}` or
+  `{"flagged": false, "error": "reason is required"}`.
 
 **Dates in tests vs. live:** the plain functions `get_employee_info` and
 `check_request_eligibility` accept an optional `as_of` for tests. The MCP tools don't expose
@@ -190,10 +197,11 @@ Each equipment record is one physical unit: `{item, issued_date}`.
 | ID | Role | Start | Equipment records, in file order |
 |---|---|---|---|
 | E1001 | engineer | 2021-03-01 | laptop `2023-06-15`, monitor `2024-01-10`, monitor `2024-05-20` |
-| E1002 | standard | 2024-11-04 | laptop `2025-02-01`, keyboard `2023-03-01` |
+| E1002 | standard | 2022-08-01 | laptop `2025-02-01`, keyboard `2023-03-01` |
 | E1003 | manager | 2019-08-12 | laptop `2024-12-20`, headset `2025-09-01`, laptop `2022-11-15` |
 | E1004 | contractor | 2025-06-02 | monitor `2025-06-02` |
 | E1005 | intern (no policy) | 2026-09-01 | none |
+| E1006 | standard | 2026-10-01 | none |
 | E9999 | does not exist | | |
 
 E1003's old laptop is deliberately listed **last**. If the code used it, the result would be

@@ -12,7 +12,7 @@
   "E1002": {
     "name": "Jordan Lee",
     "role": "standard",
-    "start_date": "2024-11-04",
+    "start_date": "2022-08-01",
     "equipment": [
       {"item": "laptop", "issued_date": "2025-02-01"},
       {"item": "keyboard", "issued_date": "2023-03-01"}
@@ -40,6 +40,12 @@
     "name": "Riley Chen",
     "role": "intern",
     "start_date": "2026-09-01",
+    "equipment": []
+  },
+  "E1006": {
+    "name": "Morgan Diaz",
+    "role": "standard",
+    "start_date": "2026-10-01",
     "equipment": []
   }
 }

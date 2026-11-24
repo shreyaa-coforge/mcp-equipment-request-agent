@@ -110,6 +110,15 @@ Most tutorials online are for v1 and WILL BREAK. Use these v2 names:
 - `python -m agent.agent --demo-reflection` runs reflection on a deliberately flawed,
   clearly labeled demo draft to prove it catches problems.
 
+## TDD rules
+- Tests first. Write the tests, run `pytest -v` and show them failing (red). Then write
+  the implementation, run again and show them passing (green).
+- Never write code and its tests in the same step.
+- Every test docstring names the rule ID it covers (e.g. `R-11`). A test of a tool contract
+  or data shape with no rule ID names its spec section instead (e.g. `Spec 5`).
+- Date tests always pass an explicit `as_of`. They never depend on the real date or on
+  `.env`. Tests that check the `REFERENCE_DATE` fallback set the env var with `monkeypatch`.
+
 ## Commands
 - Tests: `pytest -v`
 - Minimal connectivity: `python scripts/minimal_client.py`
