@@ -1,0 +1,30 @@
+{
+  "standard": {
+    "laptop":   {"allowed": true, "refresh_months": 48, "note": null},
+    "monitor":  {"allowed": true, "refresh_months": 36, "note": null},
+    "keyboard": {"allowed": true, "refresh_months": 24, "note": null},
+    "mouse":    {"allowed": true, "refresh_months": 24, "note": null},
+    "headset":  {"allowed": true, "refresh_months": 24, "note": null}
+  },
+  "engineer": {
+    "laptop":   {"allowed": true, "refresh_months": 36, "note": null},
+    "monitor":  {"allowed": true, "refresh_months": 36, "note": null},
+    "keyboard": {"allowed": true, "refresh_months": 24, "note": null},
+    "mouse":    {"allowed": true, "refresh_months": 24, "note": null},
+    "headset":  {"allowed": true, "refresh_months": 24, "note": null}
+  },
+  "manager": {
+    "laptop":   {"allowed": true, "refresh_months": 24, "note": null},
+    "monitor":  {"allowed": true, "refresh_months": 36, "note": null},
+    "keyboard": {"allowed": true, "refresh_months": 24, "note": null},
+    "mouse":    {"allowed": true, "refresh_months": 24, "note": null},
+    "headset":  {"allowed": true, "refresh_months": 18, "note": null}
+  },
+  "contractor": {
+    "laptop":   {"allowed": false, "refresh_months": null, "note": "Contractors receive laptops from their agency only."},
+    "monitor":  {"allowed": true, "refresh_months": 36, "note": null},
+    "keyboard": {"allowed": true, "refresh_months": 36, "note": null},
+    "mouse":    {"allowed": true, "refresh_months": 36, "note": null},
+    "headset":  {"allowed": true, "refresh_months": 24, "note": null}
+  }
+}

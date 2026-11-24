@@ -53,6 +53,9 @@ Most tutorials online are for v1 and WILL BREAK. Use these v2 names:
 - Mock data lives in `server/data/employees.json` and `server/data/policies.json`.
 - `check_request_eligibility` accepts an optional `as_of` date (ISO string) in the plain
   function for deterministic tests; the MCP wrapper does NOT expose `as_of`.
+  `get_employee_info` takes the same optional `as_of` (for `tenure_months`).
+- Evaluation date: `as_of` if given, else env var `REFERENCE_DATE`, else today (UTC). The MCP
+  wrappers always pass `REFERENCE_DATE` for both tenure and eligibility.
 - `flag_for_human_review` appends one JSON line to the file at env var `ESCALATIONS_FILE`
   (default `escalations.jsonl`) and returns a ticket id like `ESC-0001`. Tests point
   `ESCALATIONS_FILE` at pytest's `tmp_path`.
@@ -65,6 +68,7 @@ Most tutorials online are for v1 and WILL BREAK. Use these v2 names:
   `{"thought": str, "action": <tool name or "final_answer">, "action_input": {...}}`.
   The agent prints `Thought:`, `Action:`, `Observation:` for every step.
 - Tool descriptions given to the model come from `session.list_tools()` at runtime.
+- Print the evaluation date (`REFERENCE_DATE` or today) as the first line of every trace.
 - Max 8 steps. Validate the action name against the tool list; feed errors back as observations.
 - Final answer JSON: `decision` (approve | deny | escalate), `response_to_employee`,
   `policy_basis`, `escalation_reason` (required when escalating), `ticket_id` (when escalating).
@@ -72,9 +76,33 @@ Most tutorials online are for v1 and WILL BREAK. Use these v2 names:
 - If the decision is escalate, the agent must have called `flag_for_human_review`. If not,
   the loop feeds that back as an observation and continues.
 
+## Confirmed design decisions (see docs/REQUIREMENTS.md for full rules)
+- `docs/REQUIREMENTS.md` is the spec for policy values, rule order, reason codes and tool
+  output schemas. Code and tests must match it.
+- No quantity handling: `check_request_eligibility(employee_id, item)` has exactly those two
+  MCP parameters. There is no max-quantity rule and no `max_quantity` field anywhere.
+- Rule order principle: explicit prohibitions are checked first and denied; uncertainty is
+  escalated. Unknown employee, role or item is escalated before prohibitions, because policy
+  can't be applied without them.
+- Deny vs. escalate line: more than 60 days until eligible is a deny, 1 to 60 days is an
+  escalate, and 0 or fewer days is an approve.
+- `REFERENCE_DATE=2026-11-24` (in `.env.example`) pins the demo date. Demo expectations in
+  the requirements doc assume it.
+- Accommodation (medical, accessibility or safety need) is detected by the plain function
+  `detect_accommodation_need(reason)` in `agent/accommodation.py`, with unit tests in
+  `tests/test_accommodation.py`. If it fires, the final decision is escalate, overriding
+  the tool's approve or deny. Reflection (both layers) must never revise an R-40 escalation
+  back to approve or deny.
+- Equipment records: one record per physical unit (`item`, `issued_date`), no quantity field.
+  Eligibility uses the most recent `issued_date` for the item.
+- Evaluation order (first match wins): invalid input, employee not found, no role policy,
+  unknown item (all escalate); not allowed for role (deny); never issued (approve); then date
+  rules only: more than 60 days (deny), 1 to 60 days (escalate), 0 or fewer (approve).
+
 ## Reflection rules
 - Runs on every draft before it is finalized. Two layers:
-  1. Deterministic checks: decision matches eligibility status; escalation has a ticket id;
+  1. Deterministic checks: decision matches eligibility status, unless R-40 (accommodation)
+     applies, in which case escalate is the only valid decision; escalation has a ticket id;
      the draft does not name dates, items, or quantities absent from tool observations.
   2. LLM critique: given the draft and ALL observations, return JSON
      `{"verdict": "confirmed" | "revised", "issues": [...], "final": {...}}`.

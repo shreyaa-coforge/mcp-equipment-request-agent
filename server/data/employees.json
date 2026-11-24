@@ -1,0 +1,45 @@
+{
+  "E1001": {
+    "name": "Alex Rivera",
+    "role": "engineer",
+    "start_date": "2021-03-01",
+    "equipment": [
+      {"item": "laptop", "issued_date": "2023-06-15"},
+      {"item": "monitor", "issued_date": "2024-01-10"},
+      {"item": "monitor", "issued_date": "2024-05-20"}
+    ]
+  },
+  "E1002": {
+    "name": "Jordan Lee",
+    "role": "standard",
+    "start_date": "2024-11-04",
+    "equipment": [
+      {"item": "laptop", "issued_date": "2025-02-01"},
+      {"item": "keyboard", "issued_date": "2023-03-01"}
+    ]
+  },
+  "E1003": {
+    "name": "Sam Okafor",
+    "role": "manager",
+    "start_date": "2019-08-12",
+    "equipment": [
+      {"item": "laptop", "issued_date": "2024-12-20"},
+      {"item": "headset", "issued_date": "2025-09-01"},
+      {"item": "laptop", "issued_date": "2022-11-15"}
+    ]
+  },
+  "E1004": {
+    "name": "Casey Morgan",
+    "role": "contractor",
+    "start_date": "2025-06-02",
+    "equipment": [
+      {"item": "monitor", "issued_date": "2025-06-02"}
+    ]
+  },
+  "E1005": {
+    "name": "Riley Chen",
+    "role": "intern",
+    "start_date": "2026-09-01",
+    "equipment": []
+  }
+}
