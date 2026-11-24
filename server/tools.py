@@ -10,8 +10,10 @@ from typing import Any
 
 from server.helpers import (
     load_employees,
+    load_policies,
     months_between,
     normalize_employee_id,
+    normalize_role,
     parse_iso_date,
     resolve_as_of,
 )
@@ -60,4 +62,36 @@ def get_employee_info(employee_id: str, as_of: str | None = None) -> dict[str, A
             {"item": unit["item"], "issued_date": unit["issued_date"]}
             for unit in record["equipment"]
         ],
+    }
+
+
+def get_policy_limits(role: str) -> dict[str, Any]:
+    """Return what a role is eligible for and how often.
+
+    Args:
+        role: Role name like "manager". Trimmed and lowercased before lookup.
+
+    Returns:
+        {"found": True, "role", "items": {item: {"allowed", "refresh_months", "note"}}}
+        listing all five covered items, or {"found": False, "role", "error"}.
+    """
+    role_name = normalize_role(role)
+    if not role_name:
+        return {"found": False, "role": "", "error": "role is required"}
+
+    policy = load_policies().get(role_name)
+    if policy is None:
+        return {"found": False, "role": role_name, "error": f"No policy on file for role '{role_name}'"}
+
+    return {
+        "found": True,
+        "role": role_name,
+        "items": {
+            item: {
+                "allowed": entry["allowed"],
+                "refresh_months": entry["refresh_months"],
+                "note": entry["note"],
+            }
+            for item, entry in policy.items()
+        },
     }

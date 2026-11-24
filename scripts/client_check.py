@@ -2,8 +2,8 @@
 
 Usage: python scripts/client_check.py
 
-Current stage: only get_employee_info is registered. More calls are added as each
-tool is built, tested and wrapped.
+Current stage: get_employee_info and get_policy_limits are registered. More calls are
+added as each tool is built, tested and wrapped.
 """
 
 import asyncio
@@ -20,6 +20,8 @@ CALLS: list[tuple[str, dict]] = [
     ("get_employee_info", {"employee_id": "E1001"}),    # normal case
     ("get_employee_info", {"employee_id": " e1003 "}),  # normalized ID
     ("get_employee_info", {"employee_id": "E9999"}),    # not found
+    ("get_policy_limits", {"role": "manager"}),         # normal case
+    ("get_policy_limits", {"role": "intern"}),          # role with no policy
 ]
 
 
