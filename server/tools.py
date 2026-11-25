@@ -5,7 +5,10 @@ directly. Every function returns a JSON-serializable dict and never raises on ba
 See docs/REQUIREMENTS.md section 5 for the contracts.
 """
 
+import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from server.helpers import (
@@ -29,6 +32,8 @@ ELIGIBILITY_KEYS = (
     "allowed", "refresh_months", "last_issued_date", "next_eligible_date",
     "days_until_eligible", "as_of",
 )
+
+DEFAULT_ESCALATIONS_FILE = "escalations.jsonl"
 
 
 def _invalid_date_error(as_of: str | None) -> str:
@@ -206,3 +211,53 @@ def check_request_eligibility(
         return _decide(result, "ESCALATE_BORDERLINE",
                        f"{rule}, {days} days away (within the {BORDERLINE_DAYS}-day borderline window).")
     return _decide(result, "APPROVE_REFRESH_DUE", f"{rule}; the refresh is due.")
+
+
+def _escalations_path() -> Path:
+    """Return the escalations file path: env var ESCALATIONS_FILE, else escalations.jsonl."""
+    return Path(os.environ.get("ESCALATIONS_FILE", "").strip() or DEFAULT_ESCALATIONS_FILE)
+
+
+def _next_ticket_id(path: Path) -> str:
+    """Return the next ticket id (ESC-0001, ESC-0002, ...) from the lines already in path."""
+    count = 0
+    if path.exists():
+        count = sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return f"ESC-{count + 1:04d}"
+
+
+def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict[str, Any]:
+    """Escalate a request to a human. Side-effecting: appends one JSON line to ESCALATIONS_FILE.
+
+    Unknown employee IDs are accepted, so they can still be escalated. Nothing is written
+    when a field is missing.
+
+    Args:
+        employee_id: ID like "E1003". Trimmed and uppercased.
+        request: What the employee asked for.
+        reason: Plain-language reason a human must review it.
+
+    Returns:
+        {"flagged": True, "ticket_id", "employee_id", "request", "reason", "status":
+         "pending_review", "created_at"} or {"flagged": False, "error": "<field> is required"}.
+    """
+    emp_id = normalize_employee_id(employee_id)
+    request_text = request.strip() if isinstance(request, str) else ""
+    reason_text = reason.strip() if isinstance(reason, str) else ""
+    for field, value in (("employee_id", emp_id), ("request", request_text), ("reason", reason_text)):
+        if not value:
+            return {"flagged": False, "error": f"{field} is required"}
+
+    path = _escalations_path()
+    record = {
+        "ticket_id": _next_ticket_id(path),
+        "employee_id": emp_id,
+        "request": request_text,
+        "reason": reason_text,
+        "status": "pending_review",
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+    return {"flagged": True, **record}

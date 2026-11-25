@@ -2,13 +2,15 @@
 
 Usage: python scripts/client_check.py
 
-Current stage: get_employee_info, get_policy_limits and check_request_eligibility are
-registered. More calls are added as each tool is built, tested and wrapped.
+All four tools are registered. flag_for_human_review writes to a temporary
+ESCALATIONS_FILE (deleted afterwards), so no escalations.jsonl is left in the repo.
 """
 
 import asyncio
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -27,6 +29,12 @@ CALLS: list[tuple[str, dict]] = [
     ("check_request_eligibility", {"employee_id": "E1002", "item": "laptop"}),         # 2 deny
     ("check_request_eligibility", {"employee_id": "E1003", "item": "laptop"}),         # 3 borderline
     ("check_request_eligibility", {"employee_id": "E1004", "item": "standing desk"}),  # 4 unknown item
+    # Side-effecting: escalate demo case 3. Writes to the temporary ESCALATIONS_FILE.
+    ("flag_for_human_review", {
+        "employee_id": "E1003",
+        "request": "New laptop",
+        "reason": "Borderline: next eligible 2026-12-20, 26 days away.",
+    }),
 ]
 
 
@@ -44,19 +52,28 @@ async def call_and_print(session: ClientSession, tool: str, args: dict) -> bool:
 
 async def main() -> None:
     """Connect to the server, list tools with their input schemas, and run CALLS."""
-    params = StdioServerParameters(
-        command=sys.executable, args=["-m", "server.server"], cwd=str(REPO_ROOT)
-    )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        esc_file = Path(tmp_dir) / "escalations.jsonl"
+        # The child process only inherits a few variables, so pass ESCALATIONS_FILE explicitly.
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "server.server"],
+            cwd=str(REPO_ROOT),
+            env={**os.environ, "ESCALATIONS_FILE": str(esc_file)},
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
 
-            listed = await session.list_tools()
-            print("Registered tools:", [tool.name for tool in listed.tools])
-            for tool in listed.tools:
-                print(f"  {tool.name} input_schema: {json.dumps(tool.input_schema)}")
+                listed = await session.list_tools()
+                print("Registered tools:", [tool.name for tool in listed.tools])
+                for tool in listed.tools:
+                    print(f"  {tool.name} input_schema: {json.dumps(tool.input_schema)}")
 
-            results = [await call_and_print(session, name, args) for name, args in CALLS]
+                results = [await call_and_print(session, name, args) for name, args in CALLS]
+
+        print(f"\nTemporary ESCALATIONS_FILE contents ({esc_file}):")
+        print(esc_file.read_text(encoding="utf-8") if esc_file.exists() else "(no file written)")
 
     print(f"\n{sum(results)}/{len(results)} calls succeeded")
     sys.exit(0 if all(results) else 1)

@@ -72,6 +72,28 @@ def check_request_eligibility(employee_id: str, item: str) -> dict[str, Any]:
     return tools.check_request_eligibility(employee_id, item)
 
 
+@mcp.tool()
+def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict[str, Any]:
+    """Escalate a request to a human reviewer. SIDE-EFFECTING: records a review ticket.
+
+    You MUST call this for every escalation, before giving a final answer with
+    decision "escalate", and include the returned ticket_id in that answer. Never call it
+    for approvals or denials. Unknown employee IDs are accepted so they can be escalated.
+
+    Args: employee_id (e.g. "E1003"); request (what the employee asked for, in a short
+    phrase); reason (plain-language reason a human must decide, e.g. the eligibility
+    message or the accommodation need).
+
+    Returns flagged=true with ticket_id (e.g. "ESC-0001"), employee_id, request, reason,
+    status "pending_review" and created_at. An empty employee_id, request or reason writes
+    nothing and returns flagged=false with an error naming the missing field.
+    """
+    result = tools.flag_for_human_review(employee_id, request, reason)
+    if result["flagged"]:
+        log.info("escalation %s recorded for %s", result["ticket_id"], result["employee_id"])
+    return result
+
+
 if __name__ == "__main__":
     log.info("starting equipment-requests MCP server on stdio")
     mcp.run()
