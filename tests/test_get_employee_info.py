@@ -11,6 +11,7 @@ AS_OF = "2026-11-24"
 
 # ---------- normal cases ----------
 
+
 def test_get_employee_info_found_e1001():
     """Spec 5: a valid lookup returns the full contract for E1001 at the reference date."""
     assert get_employee_info("E1001", as_of=AS_OF) == {
@@ -28,14 +29,17 @@ def test_get_employee_info_found_e1001():
     }
 
 
-@pytest.mark.parametrize("emp_id, role, tenure", [
-    ("E1001", "engineer", 68),
-    ("E1002", "standard", 51),
-    ("E1003", "manager", 87),
-    ("E1004", "contractor", 17),
-    ("E1005", "intern", 2),
-    ("E1006", "standard", 1),
-])
+@pytest.mark.parametrize(
+    "emp_id, role, tenure",
+    [
+        ("E1001", "engineer", 68),
+        ("E1002", "standard", 51),
+        ("E1003", "manager", 87),
+        ("E1004", "contractor", 17),
+        ("E1005", "intern", 2),
+        ("E1006", "standard", 1),
+    ],
+)
 def test_every_mock_employee_is_found(emp_id, role, tenure):
     """Spec 5: every mock employee is found with the right role and tenure at 2026-11-24."""
     result = get_employee_info(emp_id, as_of=AS_OF)
@@ -69,24 +73,28 @@ def test_employee_with_no_equipment():
 
 
 def test_role_without_policy_is_still_found():
-    """R-12: E1005 (intern) is found here; the missing policy is caught by eligibility, not lookup."""
+    """R-12: E1005 (intern) is found; the missing policy is caught by eligibility, not lookup."""
     result = get_employee_info("E1005", as_of=AS_OF)
     assert result["found"] is True
     assert result["role"] == "intern"
 
 
-@pytest.mark.parametrize("as_of, tenure", [
-    ("2021-03-01", 0),   # start day
-    ("2021-03-31", 0),   # one day short of a month
-    ("2021-04-01", 1),   # exactly one month
-    ("2020-01-01", 0),   # before start date: never negative
-])
+@pytest.mark.parametrize(
+    "as_of, tenure",
+    [
+        ("2021-03-01", 0),  # start day
+        ("2021-03-31", 0),  # one day short of a month
+        ("2021-04-01", 1),  # exactly one month
+        ("2020-01-01", 0),  # before start date: never negative
+    ],
+)
 def test_tenure_follows_as_of(as_of, tenure):
     """Spec 5: tenure_months is whole months from start_date to as_of, never negative."""
     assert get_employee_info("E1001", as_of=as_of)["tenure_months"] == tenure
 
 
 # ---------- edge cases ----------
+
 
 def test_get_employee_info_not_found():
     """R-11: an unknown ID returns found=false with a clear error, no exception."""
@@ -148,6 +156,7 @@ def test_invalid_reference_date(monkeypatch):
 
 
 # ---------- contract properties ----------
+
 
 def test_result_is_an_independent_copy():
     """Spec 5: mutating a result must not change what the next call returns."""

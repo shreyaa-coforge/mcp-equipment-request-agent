@@ -16,12 +16,18 @@ COVERED_ITEMS: frozenset[str] = frozenset({"laptop", "monitor", "keyboard", "mou
 
 # Whole-name synonyms only (R-45). Keys are already trimmed and lowercased.
 ITEM_SYNONYMS: dict[str, str] = {
-    "laptops": "laptop", "notebook": "laptop",
-    "monitors": "monitor", "screen": "monitor", "screens": "monitor",
-    "display": "monitor", "displays": "monitor",
+    "laptops": "laptop",
+    "notebook": "laptop",
+    "monitors": "monitor",
+    "screen": "monitor",
+    "screens": "monitor",
+    "display": "monitor",
+    "displays": "monitor",
     "keyboards": "keyboard",
     "mice": "mouse",
-    "headsets": "headset", "headphone": "headset", "headphones": "headset",
+    "headsets": "headset",
+    "headphone": "headset",
+    "headphones": "headset",
 }
 
 

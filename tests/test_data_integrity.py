@@ -18,20 +18,25 @@ POLICY_ROLES = {"standard", "engineer", "manager", "contractor"}
 
 # Spec 3 policy table: refresh cycle in months, None means not allowed.
 EXPECTED_REFRESH = {
-    "standard":   {"laptop": 48, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
-    "engineer":   {"laptop": 36, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
-    "manager":    {"laptop": 24, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 18},
+    "standard": {"laptop": 48, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
+    "engineer": {"laptop": 36, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
+    "manager": {"laptop": 24, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 18},
     "contractor": {"laptop": None, "monitor": 36, "keyboard": 36, "mouse": 36, "headset": 24},
 }
 
 # Spec 7 mock employees table: id -> (role, start_date, [(item, issued_date), ...] in file order).
 EXPECTED_EMPLOYEES = {
-    "E1001": ("engineer", "2021-03-01",
-              [("laptop", "2023-06-15"), ("monitor", "2024-01-10"), ("monitor", "2024-05-20")]),
-    "E1002": ("standard", "2022-08-01",
-              [("laptop", "2025-02-01"), ("keyboard", "2023-03-01")]),
-    "E1003": ("manager", "2019-08-12",
-              [("laptop", "2024-12-20"), ("headset", "2025-09-01"), ("laptop", "2022-11-15")]),
+    "E1001": (
+        "engineer",
+        "2021-03-01",
+        [("laptop", "2023-06-15"), ("monitor", "2024-01-10"), ("monitor", "2024-05-20")],
+    ),
+    "E1002": ("standard", "2022-08-01", [("laptop", "2025-02-01"), ("keyboard", "2023-03-01")]),
+    "E1003": (
+        "manager",
+        "2019-08-12",
+        [("laptop", "2024-12-20"), ("headset", "2025-09-01"), ("laptop", "2022-11-15")],
+    ),
     "E1004": ("contractor", "2025-06-02", [("monitor", "2025-06-02")]),
     "E1005": ("intern", "2026-09-01", []),
     "E1006": ("standard", "2026-10-01", []),
@@ -49,6 +54,7 @@ def employees() -> dict:
 
 
 # ---------- policies.json ----------
+
 
 def test_policy_roles_are_exactly_the_four_roles(policies):
     """Spec 3 / R-12: exactly standard, engineer, manager, contractor have a policy."""
@@ -92,11 +98,14 @@ def test_contractor_laptop_not_allowed_with_note(policies):
 
 def test_only_contractor_laptop_is_prohibited(policies):
     """R-20: no other role/item combination is prohibited."""
-    prohibited = {(r, i) for r, items in policies.items() for i, e in items.items() if not e["allowed"]}
+    prohibited = {
+        (r, i) for r, items in policies.items() for i, e in items.items() if not e["allowed"]
+    }
     assert prohibited == {("contractor", "laptop")}
 
 
 # ---------- employees.json ----------
+
 
 def test_employee_ids_match_spec_table(employees):
     """Spec 7: the file contains exactly E1001 to E1006."""
@@ -169,6 +178,6 @@ def test_every_role_but_intern_has_a_policy(employees, policies):
 
 
 def test_e1003_older_laptop_is_listed_last(employees):
-    """R-21 / R-15: E1003's older laptop comes after the newer one, so taking the last record is wrong."""
+    """R-21 / R-15: E1003's older laptop is listed after the newer one (last record is wrong)."""
     laptops = [r["issued_date"] for r in employees["E1003"]["equipment"] if r["item"] == "laptop"]
     assert laptops == ["2024-12-20", "2022-11-15"]

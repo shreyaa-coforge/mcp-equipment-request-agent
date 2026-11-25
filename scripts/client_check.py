@@ -19,22 +19,28 @@ from mcp.client.stdio import stdio_client
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 CALLS: list[tuple[str, dict]] = [
-    ("get_employee_info", {"employee_id": "E1001"}),    # normal case
+    ("get_employee_info", {"employee_id": "E1001"}),  # normal case
     ("get_employee_info", {"employee_id": " e1003 "}),  # normalized ID
-    ("get_employee_info", {"employee_id": "E9999"}),    # not found
-    ("get_policy_limits", {"role": "manager"}),         # normal case
-    ("get_policy_limits", {"role": "intern"}),          # role with no policy
+    ("get_employee_info", {"employee_id": "E9999"}),  # not found
+    ("get_policy_limits", {"role": "manager"}),  # normal case
+    ("get_policy_limits", {"role": "intern"}),  # role with no policy
     # Demo cases 1-4 (docs/REQUIREMENTS.md section 7), at the server's REFERENCE_DATE.
-    ("check_request_eligibility", {"employee_id": "E1001", "item": "laptop"}),         # 1 approve
-    ("check_request_eligibility", {"employee_id": "E1002", "item": "laptop"}),         # 2 deny
-    ("check_request_eligibility", {"employee_id": "E1003", "item": "laptop"}),         # 3 borderline
-    ("check_request_eligibility", {"employee_id": "E1004", "item": "standing desk"}),  # 4 unknown item
+    ("check_request_eligibility", {"employee_id": "E1001", "item": "laptop"}),  # 1 approve
+    ("check_request_eligibility", {"employee_id": "E1002", "item": "laptop"}),  # 2 deny
+    ("check_request_eligibility", {"employee_id": "E1003", "item": "laptop"}),  # 3 borderline
+    (
+        "check_request_eligibility",
+        {"employee_id": "E1004", "item": "standing desk"},
+    ),  # 4 unknown item
     # Side-effecting: escalate demo case 3. Writes to the temporary ESCALATIONS_FILE.
-    ("flag_for_human_review", {
-        "employee_id": "E1003",
-        "request": "New laptop",
-        "reason": "Borderline: next eligible 2026-12-20, 26 days away.",
-    }),
+    (
+        "flag_for_human_review",
+        {
+            "employee_id": "E1003",
+            "request": "New laptop",
+            "reason": "Borderline: next eligible 2026-12-20, 26 days away.",
+        },
+    ),
 ]
 
 

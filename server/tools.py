@@ -28,9 +28,19 @@ from server.helpers import (
 BORDERLINE_DAYS = 60
 
 ELIGIBILITY_KEYS = (
-    "status", "reason_code", "message", "employee_id", "role", "requested_item", "item",
-    "allowed", "refresh_months", "last_issued_date", "next_eligible_date",
-    "days_until_eligible", "as_of",
+    "status",
+    "reason_code",
+    "message",
+    "employee_id",
+    "role",
+    "requested_item",
+    "item",
+    "allowed",
+    "refresh_months",
+    "last_issued_date",
+    "next_eligible_date",
+    "days_until_eligible",
+    "as_of",
 )
 
 DEFAULT_ESCALATIONS_FILE = "escalations.jsonl"
@@ -98,7 +108,11 @@ def get_policy_limits(role: str) -> dict[str, Any]:
 
     policy = load_policies().get(role_name)
     if policy is None:
-        return {"found": False, "role": role_name, "error": f"No policy on file for role '{role_name}'"}
+        return {
+            "found": False,
+            "role": role_name,
+            "error": f"No policy on file for role '{role_name}'",
+        }
 
     return {
         "found": True,
@@ -163,36 +177,53 @@ def check_request_eligibility(
 
     record = load_employees().get(emp_id)
     if record is None:
-        return _decide(result, "ESCALATE_EMPLOYEE_NOT_FOUND",
-                       f"Employee {emp_id} not found; policy cannot be applied.")
+        return _decide(
+            result,
+            "ESCALATE_EMPLOYEE_NOT_FOUND",
+            f"Employee {emp_id} not found; policy cannot be applied.",
+        )
     role = record["role"]
     result["role"] = role
 
     policy = load_policies().get(role)
     if policy is None:
-        return _decide(result, "ESCALATE_NO_POLICY_FOR_ROLE",
-                       f"No policy on file for role '{role}'; policy cannot be applied.")
+        return _decide(
+            result,
+            "ESCALATE_NO_POLICY_FOR_ROLE",
+            f"No policy on file for role '{role}'; policy cannot be applied.",
+        )
 
     entry = policy.get(item_name)
     if entry is None:
         covered = ", ".join(sorted(COVERED_ITEMS))
-        return _decide(result, "ESCALATE_UNKNOWN_ITEM",
-                       f"'{item_name}' is not a covered item (covered: {covered}).")
+        return _decide(
+            result,
+            "ESCALATE_UNKNOWN_ITEM",
+            f"'{item_name}' is not a covered item (covered: {covered}).",
+        )
     refresh = entry["refresh_months"]
     result.update(allowed=entry["allowed"], refresh_months=refresh)
 
     # Stage 2: explicit prohibition.
     if not entry["allowed"]:
-        return _decide(result, "DENY_NOT_ALLOWED_FOR_ROLE",
-                       f"{role.capitalize()} employees are not allowed a {item_name}. {entry['note']}")
+        return _decide(
+            result,
+            "DENY_NOT_ALLOWED_FOR_ROLE",
+            f"{role.capitalize()} employees are not allowed a {item_name}. {entry['note']}",
+        )
 
     # Stage 3: date rules, only when an issue date exists.
-    issued = [parse_iso_date(u["issued_date"]) for u in record["equipment"] if u["item"] == item_name]
+    issued = [
+        parse_iso_date(u["issued_date"]) for u in record["equipment"] if u["item"] == item_name
+    ]
     issued = [d for d in issued if d is not None]
     if not issued:
-        return _decide(result, "APPROVE_NEVER_ISSUED",
-                       f"No {item_name} on file for {emp_id}. {role.capitalize()} employees may "
-                       f"receive a {item_name} (refresh every {refresh} months).")
+        return _decide(
+            result,
+            "APPROVE_NEVER_ISSUED",
+            f"No {item_name} on file for {emp_id}. {role.capitalize()} employees may "
+            f"receive a {item_name} (refresh every {refresh} months).",
+        )
 
     last_issued = max(issued)
     next_eligible = add_months(last_issued, refresh)
@@ -202,14 +233,19 @@ def check_request_eligibility(
         next_eligible_date=next_eligible.isoformat(),
         days_until_eligible=days,
     )
-    rule = (f"{role.capitalize()} employees may refresh a {item_name} every {refresh} months. "
-            f"Last issued {last_issued.isoformat()}; next eligible {next_eligible.isoformat()}")
+    rule = (
+        f"{role.capitalize()} employees may refresh a {item_name} every {refresh} months. "
+        f"Last issued {last_issued.isoformat()}; next eligible {next_eligible.isoformat()}"
+    )
 
     if days > BORDERLINE_DAYS:
         return _decide(result, "DENY_TOO_EARLY", f"{rule} ({days} days away).")
     if days >= 1:
-        return _decide(result, "ESCALATE_BORDERLINE",
-                       f"{rule}, {days} days away (within the {BORDERLINE_DAYS}-day borderline window).")
+        return _decide(
+            result,
+            "ESCALATE_BORDERLINE",
+            f"{rule}, {days} days away (within the {BORDERLINE_DAYS}-day borderline window).",
+        )
     return _decide(result, "APPROVE_REFRESH_DUE", f"{rule}; the refresh is due.")
 
 
@@ -244,7 +280,11 @@ def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict[s
     emp_id = normalize_employee_id(employee_id)
     request_text = request.strip() if isinstance(request, str) else ""
     reason_text = reason.strip() if isinstance(reason, str) else ""
-    for field, value in (("employee_id", emp_id), ("request", request_text), ("reason", reason_text)):
+    for field, value in (
+        ("employee_id", emp_id),
+        ("request", request_text),
+        ("reason", reason_text),
+    ):
         if not value:
             return {"flagged": False, "error": f"{field} is required"}
 

@@ -31,6 +31,7 @@ def read_lines(path: Path) -> list[dict]:
 
 # ---------- normal cases ----------
 
+
 def test_writes_one_json_line_matching_inputs(esc_file):
     """Spec 5: one JSON line is written, matching the inputs, with status pending_review."""
     tools.flag_for_human_review(" e1003 ", REQUEST, REASON)
@@ -74,6 +75,7 @@ def test_created_at_is_valid_iso_timestamp(esc_file):
 
 
 # ---------- edge cases ----------
+
 
 def test_unknown_employee_is_still_flagged(esc_file):
     """R-11: E9999 is accepted and flagged, so a human sees the request."""

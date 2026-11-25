@@ -14,9 +14,9 @@ COVERED_ITEMS = {"laptop", "monitor", "keyboard", "mouse", "headset"}
 
 # Spec 3 policy table: refresh cycle in months, None means not allowed.
 SPEC_REFRESH = {
-    "standard":   {"laptop": 48, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
-    "engineer":   {"laptop": 36, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
-    "manager":    {"laptop": 24, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 18},
+    "standard": {"laptop": 48, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
+    "engineer": {"laptop": 36, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 24},
+    "manager": {"laptop": 24, "monitor": 36, "keyboard": 24, "mouse": 24, "headset": 18},
     "contractor": {"laptop": None, "monitor": 36, "keyboard": 36, "mouse": 36, "headset": 24},
 }
 
@@ -25,6 +25,7 @@ SPEC_REFRESH = {
 
 # ---------- normal cases ----------
 
+
 @pytest.mark.parametrize("role", sorted(SPEC_REFRESH))
 def test_policy_limits_found_for_every_role(role):
     """Spec 3: each of the 4 roles is found, lists all 5 items, and matches the table exactly."""
@@ -32,7 +33,9 @@ def test_policy_limits_found_for_every_role(role):
     assert result["found"] is True
     assert result["role"] == role
     assert set(result["items"]) == COVERED_ITEMS
-    assert {item: entry["refresh_months"] for item, entry in result["items"].items()} == SPEC_REFRESH[role]
+    assert {
+        item: entry["refresh_months"] for item, entry in result["items"].items()
+    } == SPEC_REFRESH[role]
 
 
 @pytest.mark.parametrize("role", sorted(SPEC_REFRESH))
@@ -63,6 +66,7 @@ def test_allowed_items_have_no_note():
 
 # ---------- edge cases ----------
 
+
 @pytest.mark.parametrize("raw", ["MANAGER", " Manager ", "manager\n"])
 def test_policy_role_case_insensitive(raw):
     """R-12: role lookup ignores case and surrounding whitespace; the result reports 'manager'."""
@@ -84,7 +88,11 @@ def test_get_policy_limits_unknown_role():
 def test_unknown_role_reports_normalized_role():
     """R-12: the not-found error uses the normalized role name."""
     result = get_policy_limits("  Intern ")
-    assert result == {"found": False, "role": "intern", "error": "No policy on file for role 'intern'"}
+    assert result == {
+        "found": False,
+        "role": "intern",
+        "error": "No policy on file for role 'intern'",
+    }
 
 
 @pytest.mark.parametrize("raw", ["", "   ", None, 7])
@@ -94,6 +102,7 @@ def test_blank_role_never_raises(raw):
 
 
 # ---------- contract properties ----------
+
 
 def test_policy_result_is_an_independent_copy():
     """Spec 5: mutating a result must not change what the next call returns."""
@@ -117,9 +126,19 @@ AS_OF = "2026-11-24"
 
 # Spec 5: every response has exactly these keys.
 CONTRACT_KEYS = {
-    "status", "reason_code", "message", "employee_id", "role", "requested_item", "item",
-    "allowed", "refresh_months", "last_issued_date", "next_eligible_date",
-    "days_until_eligible", "as_of",
+    "status",
+    "reason_code",
+    "message",
+    "employee_id",
+    "role",
+    "requested_item",
+    "item",
+    "allowed",
+    "refresh_months",
+    "last_issued_date",
+    "next_eligible_date",
+    "days_until_eligible",
+    "as_of",
 }
 DATE_FIELDS = ("last_issued_date", "next_eligible_date", "days_until_eligible")
 
@@ -131,14 +150,18 @@ def check(employee_id, item, as_of=AS_OF):
 
 # ---------- R-10 invalid input ----------
 
-@pytest.mark.parametrize("emp_id, item, as_of", [
-    ("E1001", "", AS_OF),             # empty item
-    ("E1001", "   ", AS_OF),          # whitespace item
-    ("", "laptop", AS_OF),            # empty employee ID
-    ("  ", "laptop", AS_OF),          # whitespace employee ID
-    ("E1001", "laptop", "2026-02-30"),  # invalid as_of
-    ("E1001", "laptop", "not-a-date"),
-])
+
+@pytest.mark.parametrize(
+    "emp_id, item, as_of",
+    [
+        ("E1001", "", AS_OF),  # empty item
+        ("E1001", "   ", AS_OF),  # whitespace item
+        ("", "laptop", AS_OF),  # empty employee ID
+        ("  ", "laptop", AS_OF),  # whitespace employee ID
+        ("E1001", "laptop", "2026-02-30"),  # invalid as_of
+        ("E1001", "laptop", "not-a-date"),
+    ],
+)
 def test_invalid_input_escalates(emp_id, item, as_of):
     """R-10: empty item, empty employee ID or invalid as_of gives ESCALATE_INVALID_INPUT."""
     result = check(emp_id, item, as_of)
@@ -152,7 +175,9 @@ def test_invalid_input_message_names_the_problem():
     assert "2026-02-30" in check("E1001", "laptop", "2026-02-30")["message"]
 
 
-@pytest.mark.parametrize("emp_id, item", [(None, "laptop"), ("E1001", None), (1001, "laptop"), ("E1001", ["laptop"])])
+@pytest.mark.parametrize(
+    "emp_id, item", [(None, "laptop"), ("E1001", None), (1001, "laptop"), ("E1001", ["laptop"])]
+)
 def test_non_string_inputs_never_raise(emp_id, item):
     """R-10: non-string inputs give ESCALATE_INVALID_INPUT instead of raising."""
     assert check(emp_id, item)["reason_code"] == "ESCALATE_INVALID_INPUT"
@@ -167,6 +192,7 @@ def test_invalid_reference_date_escalates(monkeypatch):
 
 
 # ---------- R-11 / R-12 / R-13 ----------
+
 
 def test_unknown_employee_escalates():
     """R-11: E9999 gives ESCALATE_EMPLOYEE_NOT_FOUND, with role null."""
@@ -184,13 +210,14 @@ def test_role_without_policy_escalates():
 
 @pytest.mark.parametrize("item", ["standing desk", "laptop stand"])
 def test_unknown_item_escalates(item):
-    """R-13 / R-45: 'standing desk' and 'laptop stand' give ESCALATE_UNKNOWN_ITEM (no substring match)."""
+    """R-13 / R-45: 'standing desk' and 'laptop stand' are ESCALATE_UNKNOWN_ITEM (no substrings)."""
     result = check("E1001", item)
     assert (result["status"], result["reason_code"]) == ("escalate", "ESCALATE_UNKNOWN_ITEM")
     assert result["item"] == item
 
 
 # ---------- R-20 / R-30 ----------
+
 
 def test_not_allowed_checked_before_never_issued():
     """R-20: E1004 (contractor) laptop is denied even though E1004 never had one (ordering)."""
@@ -208,6 +235,7 @@ def test_never_issued_approves(emp_id, item):
 
 
 # ---------- R-21 / R-15 / R-31 ----------
+
 
 def test_too_early_denied():
     """R-21: E1002 laptop gives DENY_TOO_EARLY, next eligible 2029-02-01, 800 days away."""
@@ -241,19 +269,27 @@ def test_most_recent_issue_date_used():
     assert result["reason_code"] == "ESCALATE_BORDERLINE"  # the old record would wrongly approve
 
 
-@pytest.mark.parametrize("as_of, status, reason_code, days", [
-    ("2026-10-20", "deny", "DENY_TOO_EARLY", 61),
-    ("2026-10-21", "escalate", "ESCALATE_BORDERLINE", 60),
-    ("2026-12-19", "escalate", "ESCALATE_BORDERLINE", 1),
-    ("2026-12-20", "approve", "APPROVE_REFRESH_DUE", 0),
-])
+@pytest.mark.parametrize(
+    "as_of, status, reason_code, days",
+    [
+        ("2026-10-20", "deny", "DENY_TOO_EARLY", 61),
+        ("2026-10-21", "escalate", "ESCALATE_BORDERLINE", 60),
+        ("2026-12-19", "escalate", "ESCALATE_BORDERLINE", 1),
+        ("2026-12-20", "approve", "APPROVE_REFRESH_DUE", 0),
+    ],
+)
 def test_borderline_boundaries(as_of, status, reason_code, days):
     """R-21 / R-15 / R-31: E1003 laptop at 61, 60, 1 and 0 days until eligible."""
     result = check("E1003", "laptop", as_of)
-    assert (result["status"], result["reason_code"], result["days_until_eligible"]) == (status, reason_code, days)
+    assert (result["status"], result["reason_code"], result["days_until_eligible"]) == (
+        status,
+        reason_code,
+        days,
+    )
 
 
 # ---------- normalization and additional units ----------
+
 
 def test_synonym_screen_resolves_to_monitor():
     """R-13: E1001 'Screen' resolves to monitor; requested_item keeps the raw text."""
@@ -264,7 +300,7 @@ def test_synonym_screen_resolves_to_monitor():
 
 
 def test_additional_monitor_treated_as_refresh():
-    """R-21 / Spec 4: a second monitor is a refresh. E1001 uses its newest monitor (2024-05-20) + 36 months."""
+    """R-21 / Spec 4: a second monitor is a refresh, from E1001's newest monitor (2024-05-20)."""
     result = check("E1001", "monitor")
     assert result["last_issued_date"] == "2024-05-20"
     assert result["refresh_months"] == 36
@@ -275,20 +311,31 @@ def test_additional_monitor_treated_as_refresh():
 
 # ---------- demo lock ----------
 
-@pytest.mark.parametrize("case, emp_id, item, status, reason_code", [
-    ("1", "E1001", "laptop", "approve", "APPROVE_REFRESH_DUE"),
-    ("2", "E1002", "laptop", "deny", "DENY_TOO_EARLY"),
-    ("3", "E1003", "laptop", "escalate", "ESCALATE_BORDERLINE"),
-    ("4", "E1004", "standing desk", "escalate", "ESCALATE_UNKNOWN_ITEM"),
-    ("bonus", "E1002", "keyboard", "approve", "APPROVE_REFRESH_DUE"),  # R-40 escalates in the agent
-])
+
+@pytest.mark.parametrize(
+    "case, emp_id, item, status, reason_code",
+    [
+        ("1", "E1001", "laptop", "approve", "APPROVE_REFRESH_DUE"),
+        ("2", "E1002", "laptop", "deny", "DENY_TOO_EARLY"),
+        ("3", "E1003", "laptop", "escalate", "ESCALATE_BORDERLINE"),
+        ("4", "E1004", "standing desk", "escalate", "ESCALATE_UNKNOWN_ITEM"),
+        (
+            "bonus",
+            "E1002",
+            "keyboard",
+            "approve",
+            "APPROVE_REFRESH_DUE",
+        ),  # R-40 escalates in the agent
+    ],
+)
 def test_demo_cases_tool_level(case, emp_id, item, status, reason_code):
-    """Spec 7 demo lock (R-31, R-21, R-15, R-13): tool-level status for each demo case at 2026-11-24."""
+    """Spec 7 demo lock (R-31, R-21, R-15, R-13): tool-level status per demo case at 2026-11-24."""
     result = check(emp_id, item)
     assert (result["status"], result["reason_code"]) == (status, reason_code)
 
 
 # ---------- messages (R-50) ----------
+
 
 def test_deny_too_early_message_cites_rule_and_date():
     """R-50: a too-early deny message mentions the refresh cycle and the next eligible date."""
@@ -307,16 +354,23 @@ def test_deny_not_allowed_message_cites_rule():
 # ---------- contract (Spec 5) ----------
 
 CONTRACT_CASES = [
-    ("", "laptop", AS_OF), ("E1001", "laptop", "bad"), ("E9999", "laptop", AS_OF),
-    ("E1005", "laptop", AS_OF), ("E1001", "standing desk", AS_OF), ("E1004", "laptop", AS_OF),
-    ("E1006", "laptop", AS_OF), ("E1002", "laptop", AS_OF), ("E1003", "laptop", AS_OF),
-    ("E1001", "laptop", AS_OF), (None, None, AS_OF),
+    ("", "laptop", AS_OF),
+    ("E1001", "laptop", "bad"),
+    ("E9999", "laptop", AS_OF),
+    ("E1005", "laptop", AS_OF),
+    ("E1001", "standing desk", AS_OF),
+    ("E1004", "laptop", AS_OF),
+    ("E1006", "laptop", AS_OF),
+    ("E1002", "laptop", AS_OF),
+    ("E1003", "laptop", AS_OF),
+    ("E1001", "laptop", AS_OF),
+    (None, None, AS_OF),
 ]
 
 
 @pytest.mark.parametrize("emp_id, item, as_of", CONTRACT_CASES)
 def test_every_result_has_all_contract_keys(emp_id, item, as_of):
-    """Spec 5: every response, on every path, has exactly the contract keys and serializes to JSON."""
+    """Spec 5: every response on every path has exactly the contract keys and is JSON-safe."""
     result = check(emp_id, item, as_of)
     assert set(result) == CONTRACT_KEYS
     assert result["status"] in {"approve", "deny", "escalate"}
@@ -334,5 +388,9 @@ def test_status_matches_reason_code_prefix():
 def test_normalized_fields_reported():
     """Spec 5: employee_id and item are reported normalized; as_of is the evaluation date."""
     result = check(" e1002 ", "  LAPTOPS ")
-    assert (result["employee_id"], result["item"], result["requested_item"]) == ("E1002", "laptop", "  LAPTOPS ")
+    assert (result["employee_id"], result["item"], result["requested_item"]) == (
+        "E1002",
+        "laptop",
+        "  LAPTOPS ",
+    )
     assert result["as_of"] == AS_OF
