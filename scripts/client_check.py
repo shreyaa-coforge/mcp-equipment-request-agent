@@ -2,8 +2,8 @@
 
 Usage: python scripts/client_check.py
 
-Current stage: get_employee_info and get_policy_limits are registered. More calls are
-added as each tool is built, tested and wrapped.
+Current stage: get_employee_info, get_policy_limits and check_request_eligibility are
+registered. More calls are added as each tool is built, tested and wrapped.
 """
 
 import asyncio
@@ -22,6 +22,11 @@ CALLS: list[tuple[str, dict]] = [
     ("get_employee_info", {"employee_id": "E9999"}),    # not found
     ("get_policy_limits", {"role": "manager"}),         # normal case
     ("get_policy_limits", {"role": "intern"}),          # role with no policy
+    # Demo cases 1-4 (docs/REQUIREMENTS.md section 7), at the server's REFERENCE_DATE.
+    ("check_request_eligibility", {"employee_id": "E1001", "item": "laptop"}),         # 1 approve
+    ("check_request_eligibility", {"employee_id": "E1002", "item": "laptop"}),         # 2 deny
+    ("check_request_eligibility", {"employee_id": "E1003", "item": "laptop"}),         # 3 borderline
+    ("check_request_eligibility", {"employee_id": "E1004", "item": "standing desk"}),  # 4 unknown item
 ]
 
 

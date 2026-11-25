@@ -51,6 +51,27 @@ def get_policy_limits(role: str) -> dict[str, Any]:
     return tools.get_policy_limits(role)
 
 
+@mcp.tool()
+def check_request_eligibility(employee_id: str, item: str) -> dict[str, Any]:
+    """Decide whether an employee's request for one item falls within policy.
+
+    This is the authoritative decision. Call it before giving any final answer.
+    Pass the core item noun: "keyboard", not "ergonomic keyboard". Covered items are
+    laptop, monitor, keyboard, mouse, headset (synonyms like "screen" are accepted).
+    A second unit of an item is evaluated the same as a refresh.
+
+    Returns status ("approve" | "deny" | "escalate"), reason_code, and a message citing
+    the rule, plus role, item, allowed, refresh_months, last_issued_date,
+    next_eligible_date, days_until_eligible and as_of (null when not applicable).
+    reason_code is one of: APPROVE_NEVER_ISSUED, APPROVE_REFRESH_DUE,
+    DENY_NOT_ALLOWED_FOR_ROLE, DENY_TOO_EARLY (more than 60 days until eligible),
+    ESCALATE_BORDERLINE (1 to 60 days), ESCALATE_UNKNOWN_ITEM, ESCALATE_EMPLOYEE_NOT_FOUND,
+    ESCALATE_NO_POLICY_FOR_ROLE, ESCALATE_INVALID_INPUT.
+    The evaluation date is the server's reference date (as_of in the result).
+    """
+    return tools.check_request_eligibility(employee_id, item)
+
+
 if __name__ == "__main__":
     log.info("starting equipment-requests MCP server on stdio")
     mcp.run()
