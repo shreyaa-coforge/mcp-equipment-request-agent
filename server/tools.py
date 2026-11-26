@@ -276,6 +276,7 @@ def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict[s
     Returns:
         {"flagged": True, "ticket_id", "employee_id", "request", "reason", "status":
          "pending_review", "created_at"} or {"flagged": False, "error": "<field> is required"}.
+        A write failure returns {"flagged": False, "error": "Could not record the escalation: ..."}.
     """
     emp_id = normalize_employee_id(employee_id)
     request_text = request.strip() if isinstance(request, str) else ""
@@ -289,15 +290,20 @@ def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict[s
             return {"flagged": False, "error": f"{field} is required"}
 
     path = _escalations_path()
-    record = {
-        "ticket_id": _next_ticket_id(path),
-        "employee_id": emp_id,
-        "request": request_text,
-        "reason": reason_text,
-        "status": "pending_review",
-        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record) + "\n")
+    try:
+        record = {
+            "ticket_id": _next_ticket_id(path),
+            "employee_id": emp_id,
+            "request": request_text,
+            "reason": reason_text,
+            "status": "pending_review",
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        # Unwritable directory, path is a directory, disk full...: report, never raise.
+        reason = exc.strerror or type(exc).__name__
+        return {"flagged": False, "error": f"Could not record the escalation: {reason} ({path})"}
     return {"flagged": True, **record}

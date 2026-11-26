@@ -116,3 +116,28 @@ def test_empty_employee_id_is_rejected(esc_file, bad_id):
     assert result["flagged"] is False
     assert "employee_id" in result["error"]
     assert not esc_file.exists()
+
+
+# ---------- write failures ----------
+
+
+def test_unwritable_directory_returns_error(tmp_path, monkeypatch):
+    """Spec 5: a write failure returns flagged=false with an error instead of raising."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)  # read and execute only: no new files
+    monkeypatch.setenv("ESCALATIONS_FILE", str(locked / "escalations.jsonl"))
+    try:
+        result = tools.flag_for_human_review("E1003", REQUEST, REASON)
+    finally:
+        locked.chmod(0o700)
+    assert result["flagged"] is False
+    assert "could not record" in result["error"].lower()
+
+
+def test_path_is_a_directory_returns_error(tmp_path, monkeypatch):
+    """Spec 5: ESCALATIONS_FILE pointing at a directory returns an error, never raises."""
+    monkeypatch.setenv("ESCALATIONS_FILE", str(tmp_path))
+    result = tools.flag_for_human_review("E1003", REQUEST, REASON)
+    assert result["flagged"] is False
+    assert "could not record" in result["error"].lower()

@@ -12,6 +12,7 @@ import contextlib
 import io
 import os
 import sys
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,15 @@ def escalations_path() -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+@dataclass
+class CaseResult:
+    """One case's outcome: the agent run, or the error that stopped it."""
+
+    case: DemoCase
+    run: AgentRun | None
+    error: str | None = None
+
+
 def reason_code_of(run: AgentRun) -> str | None:
     """R-40 if it fired, else the reason_code of the latest eligibility result."""
     if run.accommodation["needs_accommodation"] and run.final["decision"] == "escalate":
@@ -111,8 +121,12 @@ def reason_code_of(run: AgentRun) -> str | None:
     return eligibility["reason_code"] if eligibility else None
 
 
-def outcome(case: DemoCase, run: AgentRun) -> str:
-    """PASS if decision and reason code match, and every escalation has a ticket."""
+def outcome(result: CaseResult) -> str:
+    """ERROR if the case raised; PASS if decision and reason code match and every
+    escalation has a ticket; otherwise MISMATCH."""
+    if result.run is None:
+        return "ERROR"
+    case, run = result.case, result.run
     ok = (
         run.final["decision"] == case.expected_decision
         and reason_code_of(run) == case.expected_reason_code
@@ -121,8 +135,14 @@ def outcome(case: DemoCase, run: AgentRun) -> str:
     return "PASS" if ok else "MISMATCH"
 
 
-async def run_case(case: DemoCase, client: MCPClient, llm: Any) -> AgentRun:
-    """Run one case with output teed to the terminal and to demo_outputs/case_<N>.txt."""
+async def run_case(
+    case: DemoCase, client: MCPClient, llm: Any, output_dir: Path = OUTPUT_DIR
+) -> CaseResult:
+    """Run one case, teeing output to the terminal and output_dir/case_<N>.txt.
+
+    Any exception (API outage, server crash...) is caught and recorded, so it never stops
+    the remaining cases.
+    """
     tee = Tee(sys.stdout)
     with contextlib.redirect_stdout(tee):
         title = f"CASE {case.label.upper()}: Expected {case.expected_decision.upper()}"
@@ -130,27 +150,45 @@ async def run_case(case: DemoCase, client: MCPClient, llm: Any) -> AgentRun:
         print(f"{title} ({case.expected_reason_code})")
         print("=" * 80)
         print(f"Evaluation date: {evaluation_date_label()}")
-        run = await run_agent_detailed(case.request, client, llm)
+        try:
+            result = CaseResult(case, await run_agent_detailed(case.request, client, llm))
+        except Exception as exc:  # one failing case must not stop the demo
+            error = f"{type(exc).__name__}: {exc}"
+            print(f"\nERROR: case {case.label} stopped: {error}")
+            print(traceback.format_exc())
+            result = CaseResult(case, None, error)
         print()
-    (OUTPUT_DIR / f"case_{case.label}.txt").write_text(tee.buffer.getvalue(), encoding="utf-8")
-    return run
+    (output_dir / f"case_{case.label}.txt").write_text(tee.buffer.getvalue(), encoding="utf-8")
+    return result
 
 
-def print_summary(rows: list[tuple[DemoCase, AgentRun]]) -> None:
+async def run_all(
+    cases: list[DemoCase], client: MCPClient, llm: Any, output_dir: Path = OUTPUT_DIR
+) -> list[CaseResult]:
+    """Run every case in order; a case that raises is recorded as ERROR and the next runs."""
+    return [await run_case(case, client, llm, output_dir) for case in cases]
+
+
+def print_summary(results: list[CaseResult]) -> None:
     """Print the summary table: one row per case."""
     headers = ["Case", "Expected", "Actual", "Reason code", "Ticket", "Escalation reason", "Result"]
-    table = [
-        [
-            case.label,
-            case.expected_decision,
-            run.final["decision"],
-            reason_code_of(run) or "-",
-            run.final["ticket_id"] or "-",
-            shorten(run.final["escalation_reason"] or "-", 50),
-            outcome(case, run),
-        ]
-        for case, run in rows
-    ]
+    table = []
+    for result in results:
+        run = result.run
+        if run is None:
+            row = [result.case.label, result.case.expected_decision, "-", "-", "-"]
+            row += [shorten(result.error or "-", 50), "ERROR"]
+        else:
+            row = [
+                result.case.label,
+                result.case.expected_decision,
+                run.final["decision"],
+                reason_code_of(run) or "-",
+                run.final["ticket_id"] or "-",
+                shorten(run.final["escalation_reason"] or "-", 50),
+                outcome(result),
+            ]
+        table.append(row)
     widths = [max(len(str(r[i])) for r in [headers, *table]) for i in range(len(headers))]
     line = "-+-".join("-" * w for w in widths)
     print("\n" + "=" * len(line))
@@ -160,8 +198,8 @@ def print_summary(rows: list[tuple[DemoCase, AgentRun]]) -> None:
         print(" | ".join(str(cell).ljust(w) for cell, w in zip(row, widths, strict=True)))
         if row is headers:
             print(line)
-    passed = sum(outcome(case, run) == "PASS" for case, run in rows)
-    print(f"\n{passed}/{len(rows)} cases PASS")
+    passed = sum(outcome(result) == "PASS" for result in results)
+    print(f"\n{passed}/{len(results)} cases PASS")
 
 
 def shorten(text: str, limit: int) -> str:
@@ -184,15 +222,13 @@ async def main() -> int:
     print(f"Cleared {escalations.name}; outputs go to {OUTPUT_DIR.name}/\n")
 
     llm = make_openai_llm(model)
-    rows = []
     async with MCPClient() as client:
-        for case in DEMO_CASES:
-            rows.append((case, await run_case(case, client, llm)))
+        results = await run_all(DEMO_CASES, client, llm)
 
-    print_summary(rows)
+    print_summary(results)
     print(f"\nEscalations recorded in {escalations.name}:")
     print(escalations.read_text(encoding="utf-8") if escalations.exists() else "(none)")
-    return 0 if all(outcome(c, r) == "PASS" for c, r in rows) else 1
+    return 0 if all(outcome(result) == "PASS" for result in results) else 1
 
 
 if __name__ == "__main__":

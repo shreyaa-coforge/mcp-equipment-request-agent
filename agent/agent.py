@@ -187,6 +187,9 @@ def check_tool_args(tool: dict[str, Any], args: dict[str, Any]) -> str | None:
 class RunState:
     """What the agent has done so far, used to enforce the loop rules."""
 
+    # The ID parsed from "Employee <ID>:"; None if the request has no prefix.
+    employee_id: str | None = None
+    # Eligibility results for the requesting employee only (R-43).
     eligibility_results: list[dict[str, Any]] = field(default_factory=list)
     ticket_ids: list[str] = field(default_factory=list)
     # Every MCP tool call, as {"tool", "input", "output"}; reflection reads these.
@@ -267,7 +270,7 @@ async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> Agent
             "content": build_first_message(request, accommodation, evaluation_date_label()),
         },
     ]
-    state = RunState()
+    state = RunState(employee_id=employee_id)
 
     for step in range(1, MAX_STEPS + 1):
         raw = llm(messages)
@@ -286,7 +289,13 @@ async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> Agent
                 print(f"Action: {FINAL_ACTION} (draft)")
                 print(json.dumps(draft, indent=2))
                 result = reflect(
-                    llm, request, draft, state.observations, accommodation["needs_accommodation"]
+                    llm,
+                    request,
+                    draft,
+                    state.observations,
+                    accommodation["needs_accommodation"],
+                    employee_id=employee_id,
+                    request_text=reason_text,
                 )
                 print_reflection(result)
                 if result.accepted:
@@ -307,7 +316,7 @@ async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> Agent
 
         messages.append({"role": "user", "content": f"Observation: {json.dumps(observation)}"})
 
-    final = await give_up(request, employee_id, client)
+    final = await give_up(request, client, llm, state, accommodation)
     return AgentRun(final, state.observations, accommodation)
 
 
@@ -322,31 +331,80 @@ async def run_tool(
     observation = await client.call_tool(name, args)
     state.observations.append({"tool": name, "input": args, "output": observation})
     if name == ELIGIBILITY_TOOL and "status" in observation:
+        checked = observation.get("employee_id")
+        if state.employee_id is not None and checked != state.employee_id:
+            # R-43: only an eligibility check for the requesting employee counts.
+            return {
+                "error": (
+                    f"R-43: this request is from {state.employee_id}, but eligibility was "
+                    f"checked for {checked!r}. Call {ELIGIBILITY_TOOL} for "
+                    f"{state.employee_id}; this result does not count."
+                ),
+                "result": observation,
+            }
         state.eligibility_results.append(observation)
     if name == FLAG_TOOL and observation.get("flagged"):
         state.ticket_ids.append(observation["ticket_id"])
     return observation
 
 
-async def give_up(request: str, employee_id: str | None, client: MCPClient) -> dict[str, Any]:
-    """After MAX_STEPS, escalate to a human with a real ticket (R-51)."""
+async def give_up(
+    request: str,
+    client: MCPClient,
+    llm: LLM,
+    state: RunState,
+    accommodation: dict[str, Any],
+) -> dict[str, Any]:
+    """After MAX_STEPS, escalate to a human, and reflect on that draft like any other.
+
+    If the flag call fails, the answer says no ticket could be created (R-51 is then
+    reported by reflection, and the answer is kept: there is nothing left to retry).
+    """
     print(f"\nNo valid final answer after {MAX_STEPS} steps; escalating.")
-    flagged = await client.call_tool(
-        FLAG_TOOL,
-        {"employee_id": employee_id or "UNKNOWN", "request": request, "reason": NO_DECISION_REASON},
-    )
-    final = {
-        "decision": "escalate",
-        "response_to_employee": (
+    args = {
+        "employee_id": state.employee_id or "UNKNOWN",
+        "request": request,
+        "reason": NO_DECISION_REASON,
+    }
+    flagged = await client.call_tool(FLAG_TOOL, args)
+    state.observations.append({"tool": FLAG_TOOL, "input": args, "output": flagged})
+    print(f"Action: {FLAG_TOOL} {json.dumps(args)}")
+    print("Observation:")
+    print(json.dumps(flagged, indent=2))
+
+    if flagged.get("flagged"):
+        response = (
             "We couldn't complete an automatic decision on your request, so it has been "
             "passed to the IT team for review."
-        ),
+        )
+        reason = NO_DECISION_REASON
+    else:
+        response = (
+            "We couldn't complete an automatic decision on your request, and no ticket "
+            "could be created for a review. Please contact the IT team directly."
+        )
+        reason = f"{NO_DECISION_REASON}; no ticket could be created ({flagged.get('error')})"
+    draft = {
+        "decision": "escalate",
+        "response_to_employee": response,
         "policy_basis": f"Agent stopped after {MAX_STEPS} steps without a valid decision.",
-        "escalation_reason": NO_DECISION_REASON,
-        "ticket_id": flagged.get("ticket_id"),
+        "escalation_reason": reason,
+        "ticket_id": flagged.get("ticket_id") if flagged.get("flagged") else None,
     }
-    print_final(final)
-    return final
+    print("Fallback draft:")
+    print(json.dumps(draft, indent=2))
+    result = reflect(
+        llm,
+        request,
+        draft,
+        state.observations,
+        accommodation["needs_accommodation"],
+        employee_id=state.employee_id,
+        fallback=True,
+    )
+    print_reflection(result)
+    print_final(result.final)
+    return result.final
 
 
 def print_final(final: dict[str, Any]) -> None:

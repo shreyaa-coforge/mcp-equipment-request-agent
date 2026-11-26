@@ -89,11 +89,20 @@ def normalize_final(answer: dict[str, Any]) -> dict[str, Any]:
     return final
 
 
-def latest_eligibility(observations: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the output of the most recent check_request_eligibility call with a status."""
+def latest_eligibility(
+    observations: list[dict[str, Any]], employee_id: str | None = None
+) -> dict[str, Any] | None:
+    """Return the most recent check_request_eligibility output with a status.
+
+    With employee_id, only results for that employee count (R-43): an eligibility check for
+    someone else is never the basis for this request's decision.
+    """
     for obs in reversed(observations):
-        if obs.get("tool") == ELIGIBILITY_TOOL and "status" in obs.get("output", {}):
-            return obs["output"]
+        output = obs.get("output", {})
+        if obs.get("tool") != ELIGIBILITY_TOOL or "status" not in output:
+            continue
+        if employee_id is None or output.get("employee_id") == employee_id:
+            return output
     return None
 
 
@@ -119,16 +128,44 @@ def dates_in(text: str) -> set[str]:
     return found
 
 
+def items_named(text: str) -> set[str]:
+    """Return the covered items a text names, e.g. {"laptop"} for "a new laptop"."""
+    return {ITEM_WORDS[word] for word in _WORD.findall(text.lower()) if word in ITEM_WORDS}
+
+
+def cites_valid_r40(draft: dict[str, Any], observations: list[dict[str, Any]]) -> bool:
+    """True for an R-42 escalation: policy_basis cites R-40 and the ticket_id is real."""
+    basis = draft.get("policy_basis")
+    return (
+        draft.get("decision") == "escalate"
+        and isinstance(basis, str)
+        and basis.strip().startswith("R-40")
+        and draft.get("ticket_id") in flagged_tickets(observations)
+    )
+
+
 def observed_dates(observations: list[dict[str, Any]]) -> set[str]:
     """Return every YYYY-MM-DD date that appears anywhere in the tool outputs."""
     return set(_ISO_DATE.findall(json.dumps([obs.get("output") for obs in observations])))
 
 
-def required_decision(observations: list[dict[str, Any]], accommodation_flag: bool) -> str | None:
-    """Return the only valid decision: escalate under R-40, else the latest status (R-44)."""
-    if accommodation_flag:
+def required_decision(
+    observations: list[dict[str, Any]],
+    accommodation_flag: bool,
+    draft: dict[str, Any] | None = None,
+    employee_id: str | None = None,
+    fallback: bool = False,
+) -> str | None:
+    """Return the only valid decision (R-44).
+
+    Escalate for the 8-step fallback, under R-40 (keyword match), or for an R-42 draft that
+    cites R-40 with a real ticket. Otherwise the requesting employee's latest status.
+    """
+    if fallback or accommodation_flag:
         return "escalate"
-    eligibility = latest_eligibility(observations)
+    if draft is not None and cites_valid_r40(draft, observations):
+        return "escalate"
+    eligibility = latest_eligibility(observations, employee_id)
     return eligibility["status"] if eligibility else None
 
 
@@ -136,38 +173,70 @@ def required_decision(observations: list[dict[str, Any]], accommodation_flag: bo
 
 
 def check_draft(
-    draft: dict[str, Any], observations: list[dict[str, Any]], accommodation_flag: bool
+    draft: dict[str, Any],
+    observations: list[dict[str, Any]],
+    accommodation_flag: bool,
+    employee_id: str | None = None,
+    request_text: str | None = None,
+    fallback: bool = False,
 ) -> list[str]:
     """Check a final-answer draft against the observations. Returns issues (empty = passes).
 
+    Args:
+        draft: The final answer to check.
+        observations: Every tool call, as {"tool", "input", "output"}.
+        accommodation_flag: True if detect_accommodation_need fired (R-40).
+        employee_id: The requesting employee. Only their eligibility result counts.
+        request_text: The request text, used to check the evaluated item (R-45).
+        fallback: True for the agent's 8-step fallback escalation, which has no policy
+            decision to match; only the escalation and fact checks apply.
+
     Rules:
-        R-43  a check_request_eligibility result exists.
+        R-43  an eligibility result exists for the requesting employee.
         R-40  if accommodation_flag, the decision must be escalate (the tool's status is
               overridden, so an escalate here is NOT an issue even if the tool said approve).
-        R-44  otherwise, the decision must match the latest eligibility status.
+        R-42  an escalate whose policy_basis cites R-40 and whose ticket is real also passes.
+        R-44  otherwise, the decision must match that eligibility status.
+        R-45  eligibility was checked for an item the request asks for.
         R-51  an escalation has a ticket_id returned by flag_for_human_review.
         R-50  a DENY_TOO_EARLY deny gives the next_eligible_date in the reply.
-        R-52  every date in the reply (ISO or written out) appears in an observation, and the reply
-              names no covered item other than the one that was evaluated.
+        R-52  every date in the reply (ISO or written out) appears in an observation, and the
+              reply names no covered item other than the one that was evaluated.
     """
     issues: list[str] = []
     decision = draft.get("decision")
     response = draft.get("response_to_employee") or ""
-    eligibility = latest_eligibility(observations)
+    eligibility = None if fallback else latest_eligibility(observations, employee_id)
 
-    if eligibility is None:
-        issues.append(f"R-43: no {ELIGIBILITY_TOOL} result; the decision has no policy basis.")
+    if fallback:
+        if decision != "escalate":
+            issues.append(f"R-44: the fallback answer must escalate, not {decision!r}.")
+    elif eligibility is None:
+        who = f" for {employee_id}" if employee_id else ""
+        issues.append(f"R-43: no {ELIGIBILITY_TOOL} result{who}; the decision has no policy basis.")
     elif accommodation_flag:
         if decision != "escalate":
             issues.append(
                 f"R-40: an accommodation need was detected, so the decision must be escalate, "
                 f"not {decision!r}."
             )
+    elif cites_valid_r40(draft, observations):
+        pass  # R-42: the model applied R-40 itself, with a real ticket.
     elif decision != eligibility["status"]:
         issues.append(
             f"R-44: decision {decision!r} does not match {ELIGIBILITY_TOOL} status "
             f"{eligibility['status']!r} ({eligibility['reason_code']})."
         )
+
+    if eligibility is not None and request_text is not None:
+        evaluated = eligibility.get("item")
+        asked = items_named(request_text)
+        if evaluated in ITEM_WORDS.values() and evaluated not in asked:
+            wanted = ", ".join(sorted(asked)) or "no covered item"
+            issues.append(
+                f"R-45: eligibility was checked for {evaluated!r}, but the request asks for "
+                f"{wanted}."
+            )
 
     if decision == "escalate":
         tickets = flagged_tickets(observations)
@@ -198,8 +267,7 @@ def check_draft(
 
     if eligibility is not None:
         evaluated = eligibility.get("item")
-        named = {ITEM_WORDS[w] for w in _WORD.findall(response.lower()) if w in ITEM_WORDS}
-        for item in sorted(named - {evaluated}):
+        for item in sorted(items_named(response) - {evaluated}):
             issues.append(
                 f"R-52: the reply names {item!r}, but the request was evaluated for {evaluated!r}."
             )
@@ -214,9 +282,10 @@ employee's request, every tool observation, a DRAFT final answer, and the issues
 deterministic checker found. Decide whether the draft is correct and safe to send.
 
 The input gives "required_decision", computed by code from the latest
-check_request_eligibility "status" (or escalate when an accommodation need, R-40, was
-detected). It is authoritative: final.decision MUST equal required_decision. NEVER change an
-R-40 escalation to approve or deny. Do not compare dates yourself: the tool already did
+check_request_eligibility "status", or escalate when an accommodation need (R-40) was
+detected or cited with a real ticket (R-42), or when the agent could not reach a decision.
+It is authoritative: final.decision MUST equal required_decision. NEVER change an R-40
+escalation to approve or deny. Do not compare dates yourself: the tool already did
 that at "evaluation_date". A next_eligible_date before evaluation_date means the refresh is
 due, not that the employee must wait.
 
@@ -274,13 +343,17 @@ def critique_draft(
     observations: list[dict[str, Any]],
     accommodation_flag: bool,
     layer1_issues: list[str],
+    employee_id: str | None = None,
+    fallback: bool = False,
 ) -> Critique:
     """Run the LLM critique. An unusable reply becomes a 'confirmed' with an issue noted."""
-    eligibility = latest_eligibility(observations)
+    eligibility = latest_eligibility(observations, employee_id)
     payload = {
         "request": request,
         "evaluation_date": eligibility.get("as_of") if eligibility else None,
-        "required_decision": required_decision(observations, accommodation_flag),
+        "required_decision": required_decision(
+            observations, accommodation_flag, draft, employee_id, fallback
+        ),
         "accommodation_need_detected_R40": accommodation_flag,
         "observations": observations,
         "draft": draft,
@@ -320,6 +393,7 @@ class ReflectionResult:
     final: dict[str, Any]
     remaining_issues: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    fallback: bool = False
 
     @property
     def accepted(self) -> bool:
@@ -333,11 +407,20 @@ def reflect(
     draft: dict[str, Any],
     observations: list[dict[str, Any]],
     accommodation_flag: bool,
+    employee_id: str | None = None,
+    request_text: str | None = None,
+    fallback: bool = False,
 ) -> ReflectionResult:
-    """Run Layer 1 and Layer 2 on a draft and decide what the final answer is."""
+    """Run Layer 1 and Layer 2 on a draft and decide what the final answer is.
+
+    employee_id, request_text and fallback are passed to check_draft (see its docstring).
+    """
     draft = normalize_final(draft)
-    layer1 = check_draft(draft, observations, accommodation_flag)
-    critique = critique_draft(llm, request, draft, observations, accommodation_flag, layer1)
+    checks = {"employee_id": employee_id, "request_text": request_text, "fallback": fallback}
+    layer1 = check_draft(draft, observations, accommodation_flag, **checks)
+    critique = critique_draft(
+        llm, request, draft, observations, accommodation_flag, layer1, employee_id, fallback
+    )
     notes: list[str] = []
 
     candidate = draft
@@ -353,13 +436,17 @@ def reflect(
             notes.append("Revision discarded: it left response_to_employee or policy_basis empty.")
             candidate = draft
 
-    # R-40 guard: never turn an accommodation escalation back into approve or deny.
-    r40_escalation = accommodation_flag and draft["decision"] == "escalate"
-    if r40_escalation and candidate["decision"] != "escalate":
+    # R-40 guard: never turn an accommodation escalation back into approve or deny. This
+    # covers a keyword match (R-41), a model-applied R-40 with a real ticket (R-42), and the
+    # 8-step fallback, which can only ever escalate.
+    protected = draft["decision"] == "escalate" and (
+        accommodation_flag or fallback or cites_valid_r40(draft, observations)
+    )
+    if protected and candidate["decision"] != "escalate":
         notes.append("Revision discarded: an R-40 escalation can never become approve or deny.")
         candidate = draft
 
-    remaining = check_draft(candidate, observations, accommodation_flag)
+    remaining = check_draft(candidate, observations, accommodation_flag, **checks)
     if remaining and candidate is not draft and not layer1:
         notes.append("Revision discarded: it broke Layer 1 rules the draft passed.")
         candidate, remaining = draft, []
@@ -377,6 +464,7 @@ def reflect(
         final=candidate,
         remaining_issues=remaining,
         notes=notes,
+        fallback=fallback,
     )
 
 
@@ -400,7 +488,12 @@ def print_reflection(result: ReflectionResult) -> None:
         print(f"Response before: {before['response_to_employee']}")
         print(f"Response after:  {after['response_to_employee']}")
     if result.remaining_issues:
-        print("Still failing after reflection (sent back to the agent):")
+        where = (
+            "fallback answer kept; a person must follow up"
+            if result.fallback
+            else ("sent back to the agent")
+        )
+        print(f"Still failing after reflection ({where}):")
         for issue in result.remaining_issues:
             print(f"  - {issue}")
     print("==================")

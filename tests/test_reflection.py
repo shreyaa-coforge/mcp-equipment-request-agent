@@ -3,6 +3,8 @@
 Observations are records {"tool", "input", "output"}, one per tool call the agent made.
 """
 
+import json
+
 import pytest
 
 from agent import reflection
@@ -252,3 +254,135 @@ def test_observed_written_date_passes():
     """R-52: a written-out date that a tool returned ('June 15, 2026') is allowed."""
     d = draft("approve", "Approved: you have been eligible for a new laptop since June 15, 2026.")
     assert check(d, [E1001_LAPTOP]) == []
+
+
+# ---------- R-42: model-applied accommodation escalations ----------
+
+R42_DRAFT = draft(
+    "escalate",
+    "A person on the IT team will review your request.",
+    "R-40 ESCALATE_ACCOMMODATION: 'I use a wheelchair' (R-42).",
+    escalation_reason="Accessibility need: 'I use a wheelchair'.",
+    ticket_id="ESC-0001",
+)
+
+
+def test_r42_escalation_with_real_ticket_passes():
+    """R-42: an escalation citing R-40 with a real ticket passes, even with no keyword match."""
+    assert check(R42_DRAFT, [E1001_LAPTOP, flag_obs("ESC-0001", "E1001")]) == []
+
+
+def test_r42_escalation_with_invented_ticket_is_caught():
+    """R-42 / R-51: citing R-40 does not excuse a ticket no flag call returned."""
+    issues = check(R42_DRAFT, [E1001_LAPTOP, flag_obs("ESC-0007", "E1001")])
+    assert any("R-51" in issue for issue in issues)
+
+
+def test_r42_escalation_without_ticket_is_caught():
+    """R-42 / R-51: an R-40 escalation with no flag call at all is caught."""
+    issues = check(R42_DRAFT, [E1001_LAPTOP])
+    assert issues
+
+
+def test_reflection_never_reverts_r42_escalation():
+    """R-44: a critique that turns an R-42 escalation into approve is discarded."""
+
+    def approving_critique(messages):
+        revised = dict(R42_DRAFT, decision="approve", ticket_id=None, escalation_reason=None)
+        return json.dumps({"verdict": "revised", "issues": ["x"], "final": revised})
+
+    result = reflection.reflect(
+        approving_critique,
+        "Employee E1001: I use a wheelchair.",
+        R42_DRAFT,
+        [E1001_LAPTOP, flag_obs("ESC-0001", "E1001")],
+        False,
+    )
+    assert result.final["decision"] == "escalate"
+    assert result.final["ticket_id"] == "ESC-0001"
+
+
+# ---------- requesting employee and item ----------
+
+
+def test_eligibility_for_requesting_employee_is_used():
+    """R-43 / R-44: with employee_id given, only that employee's eligibility result counts."""
+    d = draft("deny", "You will be eligible on 2029-02-01.", "R-21 DENY_TOO_EARLY")
+    issues = reflection.check_draft(d, [E1002_LAPTOP, E1001_LAPTOP], False, employee_id="E1002")
+    assert issues == []
+
+
+def test_no_eligibility_for_requesting_employee_is_caught():
+    """R-43: an eligibility result for a different employee does not count."""
+    issues = reflection.check_draft(
+        draft("approve", "Approved."), [E1001_LAPTOP], False, employee_id="E1002"
+    )
+    assert any("R-43" in issue for issue in issues)
+
+
+def test_eligibility_item_differs_from_request_is_caught():
+    """R-45: eligibility checked for 'keyboard' on a laptop request is an issue."""
+    issues = reflection.check_draft(
+        draft("approve", "Approved."),
+        [E1002_KEYBOARD],
+        False,
+        employee_id="E1002",
+        request_text="I'd like a new laptop, mine feels a bit slow.",
+    )
+    assert any("keyboard" in issue and "laptop" in issue for issue in issues)
+
+
+def test_uncovered_item_in_request_is_not_an_item_mismatch():
+    """R-45: 'laptop stand' checked as 'laptop stand' (unknown item) is not a mismatch."""
+    unknown = {
+        "tool": "check_request_eligibility",
+        "input": {"employee_id": "E1001", "item": "laptop stand"},
+        "output": dict(
+            E1001_LAPTOP["output"],
+            status="escalate",
+            reason_code="ESCALATE_UNKNOWN_ITEM",
+            item="laptop stand",
+        ),
+    }
+    d = draft(
+        "escalate",
+        "Sent to IT.",
+        "R-13 ESCALATE_UNKNOWN_ITEM",
+        escalation_reason="Not a covered item.",
+        ticket_id="ESC-0001",
+    )
+    issues = reflection.check_draft(
+        d,
+        [unknown, flag_obs("ESC-0001", "E1001")],
+        False,
+        employee_id="E1001",
+        request_text="Can I get a laptop stand?",
+    )
+    assert issues == []
+
+
+# ---------- fallback drafts ----------
+
+
+def test_fallback_escalation_with_ticket_passes():
+    """R-51: the 8-step fallback escalation with a real ticket passes, with no eligibility."""
+    d = draft(
+        "escalate",
+        "Passed to the IT team.",
+        "Agent stopped after 8 steps.",
+        escalation_reason="agent could not reach a decision",
+        ticket_id="ESC-0001",
+    )
+    assert reflection.check_draft(d, [flag_obs("ESC-0001")], False, fallback=True) == []
+
+
+def test_fallback_escalation_without_ticket_is_reported():
+    """R-51: a fallback whose flag call failed is reported as having no ticket."""
+    d = draft(
+        "escalate",
+        "No ticket could be created.",
+        "Agent stopped after 8 steps.",
+        escalation_reason="agent could not reach a decision",
+    )
+    issues = reflection.check_draft(d, [], False, fallback=True)
+    assert len(issues) == 1 and "R-51" in issues[0]
