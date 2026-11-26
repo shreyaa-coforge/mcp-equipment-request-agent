@@ -2,9 +2,12 @@
 
 Each model turn returns JSON {"thought", "action", "action_input"}. The agent runs the
 action as an MCP tool call, prints the step, and feeds the observation back, until the
-model gives a valid final answer or MAX_STEPS is reached.
+model gives a valid final answer or MAX_STEPS is reached. Every draft final answer goes
+through reflection (agent/reflection.py, both layers) before it is finalized.
 
-Usage: python -m agent.agent "Employee E1001: <request text>"
+Usage:
+    python -m agent.agent "Employee E1001: <request text>"
+    python -m agent.agent --demo-reflection
 """
 
 import argparse
@@ -23,13 +26,13 @@ from dotenv import load_dotenv
 
 from agent.accommodation import detect_accommodation_need
 from agent.mcp_client import MCPClient
+from agent.reflection import normalize_final, print_reflection, reflect
 
 MAX_STEPS = 8
 FINAL_ACTION = "final_answer"
 ELIGIBILITY_TOOL = "check_request_eligibility"
 FLAG_TOOL = "flag_for_human_review"
 DECISIONS = ("approve", "deny", "escalate")
-FINAL_KEYS = ("decision", "response_to_employee", "policy_basis", "escalation_reason", "ticket_id")
 NO_DECISION_REASON = "agent could not reach a decision"
 
 # reason_code -> rule ID (docs/REQUIREMENTS.md section 3 and R-40), cited in policy_basis.
@@ -186,6 +189,8 @@ class RunState:
 
     eligibility_results: list[dict[str, Any]] = field(default_factory=list)
     ticket_ids: list[str] = field(default_factory=list)
+    # Every MCP tool call, as {"tool", "input", "output"}; reflection reads these.
+    observations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def check_final_answer(answer: dict[str, Any], state: RunState) -> str | None:
@@ -209,15 +214,6 @@ def check_final_answer(answer: dict[str, Any], state: RunState) -> str | None:
         if answer.get("ticket_id") not in state.ticket_ids:
             return f"ticket_id must be one returned by {FLAG_TOOL}: {', '.join(state.ticket_ids)}."
     return None
-
-
-def normalize_final(answer: dict[str, Any]) -> dict[str, Any]:
-    """Return the final answer with exactly FINAL_KEYS; escalation fields are null otherwise."""
-    final = {key: answer.get(key) for key in FINAL_KEYS}
-    if final["decision"] != "escalate":
-        final["escalation_reason"] = None
-        final["ticket_id"] = None
-    return final
 
 
 # ---------- printing ----------
@@ -270,14 +266,27 @@ async def run_agent(request: str, client: MCPClient, llm: LLM) -> dict[str, Any]
         elif turn["action"] == FINAL_ACTION:
             problem = check_final_answer(turn["action_input"], state)
             if problem is None:
-                final = normalize_final(turn["action_input"])
+                draft = normalize_final(turn["action_input"])
                 print(f"\n----- Step {step} -----")
                 print(f"Thought: {turn['thought']}")
-                print(f"Action: {FINAL_ACTION}")
-                print_final(final)
-                return final
-            observation = {"error": problem}
-            print_step(step, turn["thought"], FINAL_ACTION, turn["action_input"], observation)
+                print(f"Action: {FINAL_ACTION} (draft)")
+                print(json.dumps(draft, indent=2))
+                result = reflect(
+                    llm, request, draft, state.observations, accommodation["needs_accommodation"]
+                )
+                print_reflection(result)
+                if result.accepted:
+                    print_final(result.final)
+                    return result.final
+                observation = {
+                    "error": "Reflection rejected the draft. Fix these and try again: "
+                    + " ".join(result.remaining_issues)
+                }
+                print("Observation:")
+                print(json.dumps(observation, indent=2))
+            else:
+                observation = {"error": problem}
+                print_step(step, turn["thought"], FINAL_ACTION, turn["action_input"], observation)
         else:
             observation = await run_tool(turn, tools_by_name, client, state)
             print_step(step, turn["thought"], turn["action"], turn["action_input"], observation)
@@ -296,6 +305,7 @@ async def run_tool(
     if error:
         return {"error": error}
     observation = await client.call_tool(name, args)
+    state.observations.append({"tool": name, "input": args, "output": observation})
     if name == ELIGIBILITY_TOOL and "status" in observation:
         state.eligibility_results.append(observation)
     if name == FLAG_TOOL and observation.get("flagged"):
@@ -351,8 +361,65 @@ def make_openai_llm(model: str) -> LLM:
     return complete
 
 
-async def main(request: str) -> dict[str, Any]:
-    """Load settings, print the evaluation date first, connect to MCP and run the agent."""
+# ---------- reflection demo ----------
+
+DEMO_REQUEST = (
+    "Employee E1001: My laptop is over three years old and the battery dies by lunch. "
+    "Can I get a new one?"
+)
+
+# DELIBERATELY FLAWED, hand-written draft (not produced by the agent). The decision is right,
+# but the reply promises an item, specs and a delivery time that no tool returned.
+DEMO_FLAWED_DRAFT = {
+    "decision": "approve",
+    "response_to_employee": (
+        "Great news! Your request is approved. We'll send you a 32-inch 4K monitor "
+        "delivered by Friday."
+    ),
+    "policy_basis": (
+        "R-31 APPROVE_REFRESH_DUE: Engineer employees may refresh a laptop every 36 months."
+    ),
+    "escalation_reason": None,
+    "ticket_id": None,
+}
+
+
+async def demo_reflection(client: MCPClient, llm: LLM) -> dict[str, Any]:
+    """Run reflection on DEMO_FLAWED_DRAFT, using real observations for demo case 1."""
+    print("#" * 72)
+    print("# DEMO: reflection on a DELIBERATELY FLAWED draft (hand-written, NOT agent output)")
+    print("#" * 72)
+    print(f"Request: {DEMO_REQUEST}")
+    employee_id, reason_text = parse_request(DEMO_REQUEST)
+    accommodation = detect_accommodation_need(reason_text)
+    print(f"Accommodation check (R-41): {json.dumps(accommodation)}")
+
+    # Real tool calls through MCP, so reflection checks the draft against true observations.
+    observations = []
+    for name, args in [
+        ("get_employee_info", {"employee_id": employee_id}),
+        (ELIGIBILITY_TOOL, {"employee_id": employee_id, "item": "laptop"}),
+    ]:
+        output = await client.call_tool(name, args)
+        observations.append({"tool": name, "input": args, "output": output})
+        print(f"\nObservation from {name} {json.dumps(args)}:")
+        print(json.dumps(output, indent=2))
+
+    print("\nFlawed draft (DEMO):")
+    print(json.dumps(DEMO_FLAWED_DRAFT, indent=2))
+    result = reflect(
+        llm, DEMO_REQUEST, DEMO_FLAWED_DRAFT, observations, accommodation["needs_accommodation"]
+    )
+    print_reflection(result)
+    print_final(result.final)
+    return result.final
+
+
+# ---------- entry points ----------
+
+
+async def main(request: str | None, demo: bool = False) -> dict[str, Any]:
+    """Load settings, print the evaluation date first, connect to MCP and run."""
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     print(f"Evaluation date: {evaluation_date_label()}")
     if not os.environ.get("OPENAI_API_KEY"):
@@ -360,18 +427,28 @@ async def main(request: str) -> dict[str, Any]:
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     print(f"Model: {model}")
     async with MCPClient() as client:
-        return await run_agent(request, client, make_openai_llm(model))
+        llm = make_openai_llm(model)
+        if demo:
+            return await demo_reflection(client, llm)
+        return await run_agent(request, client, llm)
 
 
 def cli() -> None:
-    """Parse the command line and run one request."""
+    """Parse the command line and run one request, or the reflection demo."""
     parser = argparse.ArgumentParser(description="IT equipment request ReAct agent")
-    parser.add_argument("request", help='e.g. "Employee E1001: My laptop is too old."')
+    parser.add_argument("request", nargs="?", help='e.g. "Employee E1001: My laptop is too old."')
+    parser.add_argument(
+        "--demo-reflection",
+        action="store_true",
+        help="run reflection on a deliberately flawed demo draft for demo case 1",
+    )
     args = parser.parse_args()
+    if not args.demo_reflection and not args.request:
+        parser.error("give a request, or use --demo-reflection")
     # Line-buffer stdout so the trace interleaves correctly with the server's stderr log,
     # and the evaluation date is always the first line, even when output is piped.
     sys.stdout.reconfigure(line_buffering=True)
-    asyncio.run(main(args.request))
+    asyncio.run(main(args.request, demo=args.demo_reflection))
 
 
 if __name__ == "__main__":
