@@ -226,3 +226,29 @@ def test_ticket_not_required_unless_escalating(decision):
     status_obs = E1001_LAPTOP if decision == "approve" else E1002_LAPTOP
     response = "Approved." if decision == "approve" else "Eligible again on 2029-02-01."
     assert check(draft(decision, response), [status_obs]) == []
+
+
+# ---------- written-out dates ----------
+
+
+@pytest.mark.parametrize(
+    "written",
+    ["February 1, 2029", "Feb 1, 2029", "1 February 2029", "February 1st, 2029"],
+)
+def test_too_early_deny_with_written_next_date_passes(written):
+    """R-50: the next eligible date may be written out instead of YYYY-MM-DD."""
+    d = draft("deny", f"Laptops refresh every 48 months; you are eligible on {written}.")
+    assert check(d, [E1002_LAPTOP]) == []
+
+
+def test_invented_written_date_is_caught():
+    """R-52: an invented date written out ('December 1, 2026') is caught like an ISO one."""
+    d = draft("approve", "Approved! Your new laptop will arrive on December 1, 2026.")
+    issues = check(d, [E1001_LAPTOP])
+    assert any("R-52" in issue and "2026-12-01" in issue for issue in issues)
+
+
+def test_observed_written_date_passes():
+    """R-52: a written-out date that a tool returned ('June 15, 2026') is allowed."""
+    d = draft("approve", "Approved: you have been eligible for a new laptop since June 15, 2026.")
+    assert check(d, [E1001_LAPTOP]) == []
