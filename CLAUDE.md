@@ -48,7 +48,8 @@ Most tutorials online are for v1 and WILL BREAK. Use these v2 names:
 - Business logic lives in plain functions in `server/tools.py`. `server/server.py` only
   wraps them with `@mcp.tool()`. Unit tests import `server/tools.py` directly, never MCP.
 - Decision logic is deterministic and lives in `check_request_eligibility`, NOT in the LLM.
-  The LLM reads a clear `status` field and follows the rules in the system prompt.
+  The LLM reads a clear `status` field (`approve` | `deny` | `escalate`) and follows the
+  rules in the system prompt.
 - Tools never raise on bad input. They return `{"found": False, "error": "..."}` style dicts.
 - Mock data lives in `server/data/employees.json` and `server/data/policies.json`.
 - `check_request_eligibility` accepts an optional `as_of` date (ISO string) in the plain
