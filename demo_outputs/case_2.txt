@@ -1,0 +1,116 @@
+================================================================================
+CASE 2: Expected DENY (DENY_TOO_EARLY)
+================================================================================
+Evaluation date: 2026-11-24
+Request: Employee E1002: I'd like a new laptop, mine feels a bit slow.
+Accommodation check (R-41): {"needs_accommodation": false, "matched_terms": []}
+
+----- Step 1 -----
+Thought: I need to check the employee's information first to see their role and current equipment before proceeding with the policy check for a new laptop.
+Action: get_employee_info {"employee_id": "E1002"}
+Observation:
+{
+  "found": true,
+  "employee_id": "E1002",
+  "name": "Jordan Lee",
+  "role": "standard",
+  "start_date": "2022-08-01",
+  "tenure_months": 51,
+  "equipment": [
+    {
+      "item": "laptop",
+      "issued_date": "2025-02-01"
+    },
+    {
+      "item": "keyboard",
+      "issued_date": "2023-03-01"
+    }
+  ]
+}
+
+----- Step 2 -----
+Thought: Jordan Lee is a standard role employee and has been issued a laptop on 2025-02-01. I will now check the policy limits for the standard role regarding laptop eligibility.
+Action: get_policy_limits {"role": "standard"}
+Observation:
+{
+  "found": true,
+  "role": "standard",
+  "items": {
+    "laptop": {
+      "allowed": true,
+      "refresh_months": 48,
+      "note": null
+    },
+    "monitor": {
+      "allowed": true,
+      "refresh_months": 36,
+      "note": null
+    },
+    "keyboard": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    },
+    "mouse": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    },
+    "headset": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    }
+  }
+}
+
+----- Step 3 -----
+Thought: The policy allows standard role employees to receive a laptop every 48 months. Since Jordan received a laptop on 2025-02-01, they are not eligible for a new laptop until 2029-02-01. I will check the request eligibility to confirm this.
+Action: check_request_eligibility {"employee_id": "E1002", "item": "laptop"}
+Observation:
+{
+  "status": "deny",
+  "reason_code": "DENY_TOO_EARLY",
+  "message": "Standard employees may refresh a laptop every 48 months. Last issued 2025-02-01; next eligible 2029-02-01 (800 days away).",
+  "employee_id": "E1002",
+  "role": "standard",
+  "requested_item": "laptop",
+  "item": "laptop",
+  "allowed": true,
+  "refresh_months": 48,
+  "last_issued_date": "2025-02-01",
+  "next_eligible_date": "2029-02-01",
+  "days_until_eligible": 800,
+  "as_of": "2026-11-24"
+}
+
+----- Step 4 -----
+Thought: The request for a new laptop is denied because Jordan is not eligible for a refresh until 2029-02-01, which is 800 days away. I will provide the denial response with the appropriate policy basis.
+Action: final_answer (draft)
+{
+  "decision": "deny",
+  "response_to_employee": "I'm sorry, but your request for a new laptop cannot be approved at this time. You are eligible for a refresh only after 48 months from your last issued laptop, which was on February 1, 2025.",
+  "policy_basis": "R-21 DENY_TOO_EARLY: Standard employees may refresh a laptop every 48 months. Last issued 2025-02-01; next eligible 2029-02-01 (800 days away).",
+  "escalation_reason": null,
+  "ticket_id": null
+}
+
+=== REFLECTION ===
+Layer 1 (deterministic checks): 1 issue(s)
+  - R-50: a too-early deny must give the next eligible date 2029-02-01 in the reply.
+Layer 2 (LLM critique): revised, 1 issue(s)
+  - R-50: a too-early deny must give the next eligible date 2029-02-01 in the reply.
+Verdict: REVISED
+Response before: I'm sorry, but your request for a new laptop cannot be approved at this time. You are eligible for a refresh only after 48 months from your last issued laptop, which was on February 1, 2025.
+Response after:  I'm sorry, but your request for a new laptop cannot be approved at this time. You are eligible for a refresh only after 48 months from your last issued laptop, which was on February 1, 2025. Your next eligible date is 2029-02-01.
+==================
+
+===== FINAL ANSWER =====
+{
+  "decision": "deny",
+  "response_to_employee": "I'm sorry, but your request for a new laptop cannot be approved at this time. You are eligible for a refresh only after 48 months from your last issued laptop, which was on February 1, 2025. Your next eligible date is 2029-02-01.",
+  "policy_basis": "R-21 DENY_TOO_EARLY: Standard employees may refresh a laptop every 48 months. Last issued 2025-02-01; next eligible 2029-02-01 (800 days away).",
+  "escalation_reason": null,
+  "ticket_id": null
+}
+

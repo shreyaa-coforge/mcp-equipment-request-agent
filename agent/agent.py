@@ -116,7 +116,7 @@ RULES:
 4. (R-45) Pass the core item noun to tools: "keyboard", not "ergonomic keyboard". If unsure,
    pass the item as written; an unknown item escalates anyway.
 5. (R-52) Only state facts (dates, items, numbers, rules) that appear in observations.
-   Never invent or estimate a date.
+   Never invent or estimate a date. Write dates exactly as the tools give them (YYYY-MM-DD).
 6. (R-50) A deny cites the rule from the tool message. A DENY_TOO_EARLY deny also gives the
    next_eligible_date.
 7. policy_basis starts with "<rule ID> <reason_code>:" for the eligibility result's
@@ -231,8 +231,22 @@ def print_step(number: int, thought: str | None, action: str, args: Any, observa
 # ---------- the loop ----------
 
 
+@dataclass
+class AgentRun:
+    """Everything one run produced: the final answer plus what it was based on."""
+
+    final: dict[str, Any]
+    observations: list[dict[str, Any]]
+    accommodation: dict[str, Any]
+
+
 async def run_agent(request: str, client: MCPClient, llm: LLM) -> dict[str, Any]:
-    """Run the ReAct loop for one request and return the final answer dict.
+    """Run the ReAct loop for one request and return the final answer dict."""
+    return (await run_agent_detailed(request, client, llm)).final
+
+
+async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> AgentRun:
+    """Run the ReAct loop for one request and return the final answer with its observations.
 
     Args:
         request: "Employee <ID>: <request text>".
@@ -277,7 +291,7 @@ async def run_agent(request: str, client: MCPClient, llm: LLM) -> dict[str, Any]
                 print_reflection(result)
                 if result.accepted:
                     print_final(result.final)
-                    return result.final
+                    return AgentRun(result.final, state.observations, accommodation)
                 observation = {
                     "error": "Reflection rejected the draft. Fix these and try again: "
                     + " ".join(result.remaining_issues)
@@ -293,7 +307,8 @@ async def run_agent(request: str, client: MCPClient, llm: LLM) -> dict[str, Any]
 
         messages.append({"role": "user", "content": f"Observation: {json.dumps(observation)}"})
 
-    return await give_up(request, employee_id, client)
+    final = await give_up(request, employee_id, client)
+    return AgentRun(final, state.observations, accommodation)
 
 
 async def run_tool(

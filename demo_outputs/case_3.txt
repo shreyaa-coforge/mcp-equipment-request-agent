@@ -1,0 +1,130 @@
+================================================================================
+CASE 3: Expected ESCALATE (ESCALATE_BORDERLINE)
+================================================================================
+Evaluation date: 2026-11-24
+Request: Employee E1003: Can I get a new laptop? Mine is almost two years old.
+Accommodation check (R-41): {"needs_accommodation": false, "matched_terms": []}
+
+----- Step 1 -----
+Thought: I need to first look up the employee information for E1003 to understand their role and any existing equipment they have before checking the policy limits for their role regarding laptop requests.
+Action: get_employee_info {"employee_id": "E1003"}
+Observation:
+{
+  "found": true,
+  "employee_id": "E1003",
+  "name": "Sam Okafor",
+  "role": "manager",
+  "start_date": "2019-08-12",
+  "tenure_months": 87,
+  "equipment": [
+    {
+      "item": "laptop",
+      "issued_date": "2024-12-20"
+    },
+    {
+      "item": "headset",
+      "issued_date": "2025-09-01"
+    },
+    {
+      "item": "laptop",
+      "issued_date": "2022-11-15"
+    }
+  ]
+}
+
+----- Step 2 -----
+Thought: Sam Okafor is a manager and has two laptops on record, one issued on 2022-11-15 and another on 2024-12-20. I will now check the policy limits for the manager role to see if they are eligible for a new laptop.
+Action: get_policy_limits {"role": "manager"}
+Observation:
+{
+  "found": true,
+  "role": "manager",
+  "items": {
+    "laptop": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    },
+    "monitor": {
+      "allowed": true,
+      "refresh_months": 36,
+      "note": null
+    },
+    "keyboard": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    },
+    "mouse": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    },
+    "headset": {
+      "allowed": true,
+      "refresh_months": 18,
+      "note": null
+    }
+  }
+}
+
+----- Step 3 -----
+Thought: The policy for managers allows for a laptop every 24 months. Sam's last laptop was issued on 2022-11-15, which means they are eligible for a new laptop since the 24-month period has passed. I will now check the request eligibility to confirm this.
+Action: check_request_eligibility {"employee_id": "E1003", "item": "laptop"}
+Observation:
+{
+  "status": "escalate",
+  "reason_code": "ESCALATE_BORDERLINE",
+  "message": "Manager employees may refresh a laptop every 24 months. Last issued 2024-12-20; next eligible 2026-12-20, 26 days away (within the 60-day borderline window).",
+  "employee_id": "E1003",
+  "role": "manager",
+  "requested_item": "laptop",
+  "item": "laptop",
+  "allowed": true,
+  "refresh_months": 24,
+  "last_issued_date": "2024-12-20",
+  "next_eligible_date": "2026-12-20",
+  "days_until_eligible": 26,
+  "as_of": "2026-11-24"
+}
+
+----- Step 4 -----
+Thought: Sam is within the 60-day borderline window for eligibility to receive a new laptop, as their next eligible date is 2026-12-20, which is 26 days away. I need to escalate this request for human review due to the borderline status.
+Action: flag_for_human_review {"employee_id": "E1003", "request": "new laptop", "reason": "The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away."}
+Observation:
+{
+  "flagged": true,
+  "ticket_id": "ESC-0001",
+  "employee_id": "E1003",
+  "request": "new laptop",
+  "reason": "The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away.",
+  "status": "pending_review",
+  "created_at": "2026-11-26T21:35:29Z"
+}
+
+----- Step 5 -----
+Thought: The request has been successfully escalated for human review, and a ticket has been created. I will now provide the final answer to Sam regarding their request.
+Action: final_answer (draft)
+{
+  "decision": "escalate",
+  "response_to_employee": "Your request for a new laptop has been escalated for further review. You will be notified once a decision has been made.",
+  "policy_basis": "R-15 ESCALATE_BORDERLINE: The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away.",
+  "escalation_reason": "The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away.",
+  "ticket_id": "ESC-0001"
+}
+
+=== REFLECTION ===
+Layer 1 (deterministic checks): 0 issue(s)
+Layer 2 (LLM critique): confirmed, 0 issue(s)
+Verdict: CONFIRMED
+==================
+
+===== FINAL ANSWER =====
+{
+  "decision": "escalate",
+  "response_to_employee": "Your request for a new laptop has been escalated for further review. You will be notified once a decision has been made.",
+  "policy_basis": "R-15 ESCALATE_BORDERLINE: The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away.",
+  "escalation_reason": "The request is borderline as the next eligible date for a laptop is 2026-12-20, which is 26 days away.",
+  "ticket_id": "ESC-0001"
+}
+

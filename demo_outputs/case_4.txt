@@ -1,0 +1,122 @@
+================================================================================
+CASE 4: Expected ESCALATE (ESCALATE_UNKNOWN_ITEM)
+================================================================================
+Evaluation date: 2026-11-24
+Request: Employee E1004: Could I get a standing desk for my workstation?
+Accommodation check (R-41): {"needs_accommodation": false, "matched_terms": []}
+
+----- Step 1 -----
+Thought: I need to check the employee information for E1004 to see their role and any existing equipment before proceeding with the request.
+Action: get_employee_info {"employee_id": "E1004"}
+Observation:
+{
+  "found": true,
+  "employee_id": "E1004",
+  "name": "Casey Morgan",
+  "role": "contractor",
+  "start_date": "2025-06-02",
+  "tenure_months": 17,
+  "equipment": [
+    {
+      "item": "monitor",
+      "issued_date": "2025-06-02"
+    }
+  ]
+}
+
+----- Step 2 -----
+Thought: Now that I have the employee's role as a contractor, I will check the policy limits for contractors to see if they are eligible for a standing desk.
+Action: get_policy_limits {"role": "contractor"}
+Observation:
+{
+  "found": true,
+  "role": "contractor",
+  "items": {
+    "laptop": {
+      "allowed": false,
+      "refresh_months": null,
+      "note": "Contractors receive laptops from their agency only."
+    },
+    "monitor": {
+      "allowed": true,
+      "refresh_months": 36,
+      "note": null
+    },
+    "keyboard": {
+      "allowed": true,
+      "refresh_months": 36,
+      "note": null
+    },
+    "mouse": {
+      "allowed": true,
+      "refresh_months": 36,
+      "note": null
+    },
+    "headset": {
+      "allowed": true,
+      "refresh_months": 24,
+      "note": null
+    }
+  }
+}
+
+----- Step 3 -----
+Thought: The policy for contractors does not mention standing desks, which means it is likely not allowed. I will check the request eligibility to confirm this.
+Action: check_request_eligibility {"employee_id": "E1004", "item": "standing desk"}
+Observation:
+{
+  "status": "escalate",
+  "reason_code": "ESCALATE_UNKNOWN_ITEM",
+  "message": "'standing desk' is not a covered item (covered: headset, keyboard, laptop, monitor, mouse).",
+  "employee_id": "E1004",
+  "role": "contractor",
+  "requested_item": "standing desk",
+  "item": "standing desk",
+  "allowed": null,
+  "refresh_months": null,
+  "last_issued_date": null,
+  "next_eligible_date": null,
+  "days_until_eligible": null,
+  "as_of": "2026-11-24"
+}
+
+----- Step 4 -----
+Thought: The request for a standing desk is not covered under the policy for contractors, which means I need to escalate this request for human review.
+Action: flag_for_human_review {"employee_id": "E1004", "request": "standing desk", "reason": "'standing desk' is not a covered item under the contractor policy."}
+Observation:
+{
+  "flagged": true,
+  "ticket_id": "ESC-0002",
+  "employee_id": "E1004",
+  "request": "standing desk",
+  "reason": "'standing desk' is not a covered item under the contractor policy.",
+  "status": "pending_review",
+  "created_at": "2026-11-26T21:35:40Z"
+}
+
+----- Step 5 -----
+Thought: The request has been successfully escalated, and I have received a ticket ID for the review. Now I can provide the final response to the employee.
+Action: final_answer (draft)
+{
+  "decision": "escalate",
+  "response_to_employee": "Thank you for your request, Casey. Unfortunately, a standing desk is not covered under our current policy for contractors. I have escalated your request for further review.",
+  "policy_basis": "R-13 ESCALATE_UNKNOWN_ITEM: 'standing desk' is not a covered item (covered: headset, keyboard, laptop, monitor, mouse).",
+  "escalation_reason": "'standing desk' is not a covered item under the contractor policy.",
+  "ticket_id": "ESC-0002"
+}
+
+=== REFLECTION ===
+Layer 1 (deterministic checks): 0 issue(s)
+Layer 2 (LLM critique): confirmed, 0 issue(s)
+Verdict: CONFIRMED
+==================
+
+===== FINAL ANSWER =====
+{
+  "decision": "escalate",
+  "response_to_employee": "Thank you for your request, Casey. Unfortunately, a standing desk is not covered under our current policy for contractors. I have escalated your request for further review.",
+  "policy_basis": "R-13 ESCALATE_UNKNOWN_ITEM: 'standing desk' is not a covered item (covered: headset, keyboard, laptop, monitor, mouse).",
+  "escalation_reason": "'standing desk' is not a covered item under the contractor policy.",
+  "ticket_id": "ESC-0002"
+}
+

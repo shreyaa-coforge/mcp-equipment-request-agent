@@ -14,6 +14,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 ELIGIBILITY_TOOL = "check_request_eligibility"
@@ -22,6 +23,33 @@ DECISIONS = ("approve", "deny", "escalate")
 FINAL_KEYS = ("decision", "response_to_employee", "policy_basis", "escalation_reason", "ticket_id")
 
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+_MONTHS = {
+    name: number
+    for number, names in enumerate(
+        [
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sep", "sept"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ],
+        start=1,
+    )
+    for name in names
+}
+_MONTH = "(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\.?"
+_DAY = r"(\d{1,2})(?:st|nd|rd|th)?"
+# "February 1, 2029" / "Feb 1 2029" and "1 February 2029" / "1st Feb, 2029".
+_MONTH_DAY_YEAR = re.compile(rf"\b{_MONTH}\s+{_DAY},?\s+(\d{{4}})\b", re.IGNORECASE)
+_DAY_MONTH_YEAR = re.compile(rf"\b{_DAY}\s+(?:of\s+)?{_MONTH},?\s+(\d{{4}})\b", re.IGNORECASE)
 
 # Words that name a covered item in a reply, mapped to the item they mean.
 ITEM_WORDS = {
@@ -78,6 +106,19 @@ def flagged_tickets(observations: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def dates_in(text: str) -> set[str]:
+    """Return every date in text as YYYY-MM-DD: ISO dates and written ones like "Feb 1, 2029"."""
+    found = set(_ISO_DATE.findall(text))
+    candidates = [(m[0], m[1], m[2]) for m in _MONTH_DAY_YEAR.findall(text)]
+    candidates += [(m[1], m[0], m[2]) for m in _DAY_MONTH_YEAR.findall(text)]
+    for month, day, year in candidates:
+        try:
+            found.add(date(int(year), _MONTHS[month.lower()], int(day)).isoformat())
+        except ValueError:
+            continue  # not a real calendar date, e.g. "February 30, 2029"
+    return found
+
+
 def observed_dates(observations: list[dict[str, Any]]) -> set[str]:
     """Return every YYYY-MM-DD date that appears anywhere in the tool outputs."""
     return set(_ISO_DATE.findall(json.dumps([obs.get("output") for obs in observations])))
@@ -106,7 +147,7 @@ def check_draft(
         R-44  otherwise, the decision must match the latest eligibility status.
         R-51  an escalation has a ticket_id returned by flag_for_human_review.
         R-50  a DENY_TOO_EARLY deny gives the next_eligible_date in the reply.
-        R-52  every YYYY-MM-DD date in the reply appears in an observation, and the reply
+        R-52  every date in the reply (ISO or written out) appears in an observation, and the reply
               names no covered item other than the one that was evaluated.
     """
     issues: list[str] = []
@@ -144,7 +185,7 @@ def check_draft(
         decision == "deny"
         and eligibility is not None
         and eligibility.get("reason_code") == "DENY_TOO_EARLY"
-        and eligibility["next_eligible_date"] not in response
+        and eligibility["next_eligible_date"] not in dates_in(response)
     ):
         issues.append(
             f"R-50: a too-early deny must give the next eligible date "
@@ -152,8 +193,8 @@ def check_draft(
         )
 
     known_dates = observed_dates(observations)
-    for date in sorted(set(_ISO_DATE.findall(response)) - known_dates):
-        issues.append(f"R-52: the reply states date {date}, which no tool returned.")
+    for stated in sorted(dates_in(response) - known_dates):
+        issues.append(f"R-52: the reply states date {stated}, which no tool returned.")
 
     if eligibility is not None:
         evaluated = eligibility.get("item")
@@ -185,7 +226,9 @@ Check that:
   are null by design; that is correct, never an issue.
 - The reply states only facts found in the observations (R-52): no invented dates, items,
   models, sizes, specs, quantities, delivery times or promises. Remove anything else.
-- A DENY_TOO_EARLY deny cites the rule and gives next_eligible_date (R-50).
+- A DENY_TOO_EARLY deny cites the rule and gives next_eligible_date (R-50). Dates are
+  best written exactly as the tools give them (YYYY-MM-DD); a written-out form of the same
+  date ("February 1, 2029") is also correct and is NOT an issue.
 - Every deterministic issue listed is fixed.
 
 Reply with ONE JSON object:
