@@ -6,7 +6,7 @@ Request: Employee E1001: My laptop is over three years old and the battery dies 
 Accommodation check (R-41): {"needs_accommodation": false, "matched_terms": []}
 
 ----- Step 1 -----
-Thought: I need to first check the employee's information to see their role and any existing equipment before determining their eligibility for a new laptop.
+Thought: I need to first check the employee's information to see their role and current equipment status before proceeding with the policy check for a new laptop.
 Action: get_employee_info {"employee_id": "E1001"}
 Observation:
 {
@@ -33,7 +33,7 @@ Observation:
 }
 
 ----- Step 2 -----
-Thought: Alex Rivera is an engineer and has received a laptop on 2023-06-15. I need to check the policy limits for engineers regarding laptop eligibility to determine if they can receive a new one.
+Thought: Now that I have the employee's role as an engineer and their equipment history, I will check the policy limits for engineers regarding laptop eligibility.
 Action: get_policy_limits {"role": "engineer"}
 Observation:
 {
@@ -69,7 +69,7 @@ Observation:
 }
 
 ----- Step 3 -----
-Thought: The policy for engineers allows for a laptop every 36 months. Since Alex received their laptop on 2023-06-15, they are not eligible for a new one until 2026-06-15. I will check the request eligibility to confirm this.
+Thought: The policy allows engineers to receive a new laptop every 36 months. The employee's last laptop was issued on 2023-06-15, which means they are eligible for a refresh since the 36-month period has passed as of the evaluation date (2026-11-24). I will now check the request eligibility for a new laptop.
 Action: check_request_eligibility {"employee_id": "E1001", "item": "laptop"}
 Observation:
 {
@@ -89,12 +89,12 @@ Observation:
 }
 
 ----- Step 4 -----
-Thought: The eligibility check confirms that Alex is eligible for a new laptop as the refresh is due. I will proceed to provide the final answer approving the request.
+Thought: The request for a new laptop is approved because the employee is eligible for a refresh due to the policy allowing engineers to refresh their laptops every 36 months. The last issued date confirms that the refresh is due.
 Action: final_answer (draft)
 {
   "decision": "approve",
-  "response_to_employee": "Your request for a new laptop has been approved as the refresh is due.",
-  "policy_basis": "R-31 APPROVE_REFRESH_DUE: Engineer employees may refresh a laptop every 36 months. Last issued 2023-06-15; next eligible 2026-06-15; the refresh is due.",
+  "response_to_employee": "Your request for a new laptop has been approved. We will process it shortly.",
+  "policy_basis": "R-31 APPROVE_REFRESH_DUE: Engineer employees may refresh a laptop every 36 months.",
   "escalation_reason": null,
   "ticket_id": null
 }
@@ -108,8 +108,8 @@ Verdict: CONFIRMED
 ===== FINAL ANSWER =====
 {
   "decision": "approve",
-  "response_to_employee": "Your request for a new laptop has been approved as the refresh is due.",
-  "policy_basis": "R-31 APPROVE_REFRESH_DUE: Engineer employees may refresh a laptop every 36 months. Last issued 2023-06-15; next eligible 2026-06-15; the refresh is due.",
+  "response_to_employee": "Your request for a new laptop has been approved. We will process it shortly.",
+  "policy_basis": "R-31 APPROVE_REFRESH_DUE: Engineer employees may refresh a laptop every 36 months.",
   "escalation_reason": null,
   "ticket_id": null
 }
