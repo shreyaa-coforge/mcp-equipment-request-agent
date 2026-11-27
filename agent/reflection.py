@@ -10,6 +10,7 @@ Layer 1, and an R-40 accommodation escalation is never turned back into approve 
 An observation is one tool call the agent made: {"tool": name, "input": args, "output": result}.
 """
 
+import calendar
 import json
 import re
 from collections.abc import Callable
@@ -24,27 +25,13 @@ FINAL_KEYS = ("decision", "response_to_employee", "policy_basis", "escalation_re
 
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
+# Month names and abbreviations ("february", "feb", ...) -> month number, plus "sept".
 _MONTHS = {
-    name: number
-    for number, names in enumerate(
-        [
-            ("january", "jan"),
-            ("february", "feb"),
-            ("march", "mar"),
-            ("april", "apr"),
-            ("may",),
-            ("june", "jun"),
-            ("july", "jul"),
-            ("august", "aug"),
-            ("september", "sep", "sept"),
-            ("october", "oct"),
-            ("november", "nov"),
-            ("december", "dec"),
-        ],
-        start=1,
-    )
-    for name in names
-}
+    name.lower(): number
+    for names in (calendar.month_name, calendar.month_abbr)
+    for number, name in enumerate(names)
+    if name
+} | {"sept": 9}
 _MONTH = "(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\.?"
 _DAY = r"(\d{1,2})(?:st|nd|rd|th)?"
 # "February 1, 2029" / "Feb 1 2029" and "1 February 2029" / "1st Feb, 2029".
@@ -92,11 +79,8 @@ def normalize_final(answer: dict[str, Any]) -> dict[str, Any]:
 def latest_eligibility(
     observations: list[dict[str, Any]], employee_id: str | None = None
 ) -> dict[str, Any] | None:
-    """Return the most recent check_request_eligibility output with a status.
-
-    With employee_id, only results for that employee count (R-43): an eligibility check for
-    someone else is never the basis for this request's decision.
-    """
+    """Return the latest check_request_eligibility output with a status, optionally only
+    for employee_id (R-43: someone else's result is never the basis for this request)."""
     for obs in reversed(observations):
         output = obs.get("output", {})
         if obs.get("tool") != ELIGIBILITY_TOOL or "status" not in output:
@@ -156,11 +140,8 @@ def required_decision(
     employee_id: str | None = None,
     fallback: bool = False,
 ) -> str | None:
-    """Return the only valid decision (R-44).
-
-    Escalate for the 8-step fallback, under R-40 (keyword match), or for an R-42 draft that
-    cites R-40 with a real ticket. Otherwise the requesting employee's latest status.
-    """
+    """Return the only valid decision (R-44): escalate for the fallback, R-40 or a valid R-42
+    draft; otherwise the requesting employee's latest eligibility status."""
     if fallback or accommodation_flag:
         return "escalate"
     if draft is not None and cites_valid_r40(draft, observations):
@@ -182,14 +163,8 @@ def check_draft(
 ) -> list[str]:
     """Check a final-answer draft against the observations. Returns issues (empty = passes).
 
-    Args:
-        draft: The final answer to check.
-        observations: Every tool call, as {"tool", "input", "output"}.
-        accommodation_flag: True if detect_accommodation_need fired (R-40).
-        employee_id: The requesting employee. Only their eligibility result counts.
-        request_text: The request text, used to check the evaluated item (R-45).
-        fallback: True for the agent's 8-step fallback escalation, which has no policy
-            decision to match; only the escalation and fact checks apply.
+    employee_id limits eligibility to the requesting employee; request_text enables the R-45
+    item check; fallback (the 8-step escalation) skips the eligibility-based checks.
 
     Rules:
         R-43  an eligibility result exists for the requesting employee.
@@ -208,21 +183,20 @@ def check_draft(
     response = draft.get("response_to_employee") or ""
     eligibility = None if fallback else latest_eligibility(observations, employee_id)
 
-    if fallback:
-        if decision != "escalate":
-            issues.append(f"R-44: the fallback answer must escalate, not {decision!r}.")
-    elif eligibility is None:
+    expected = required_decision(observations, accommodation_flag, draft, employee_id, fallback)
+    if not fallback and eligibility is None:
         who = f" for {employee_id}" if employee_id else ""
         issues.append(f"R-43: no {ELIGIBILITY_TOOL} result{who}; the decision has no policy basis.")
+    elif decision == expected:
+        pass
+    elif fallback:
+        issues.append(f"R-44: the fallback answer must escalate, not {decision!r}.")
     elif accommodation_flag:
-        if decision != "escalate":
-            issues.append(
-                f"R-40: an accommodation need was detected, so the decision must be escalate, "
-                f"not {decision!r}."
-            )
-    elif cites_valid_r40(draft, observations):
-        pass  # R-42: the model applied R-40 itself, with a real ticket.
-    elif decision != eligibility["status"]:
+        issues.append(
+            f"R-40: an accommodation need was detected, so the decision must be escalate, "
+            f"not {decision!r}."
+        )
+    else:
         issues.append(
             f"R-44: decision {decision!r} does not match {ELIGIBILITY_TOOL} status "
             f"{eligibility['status']!r} ({eligibility['reason_code']})."

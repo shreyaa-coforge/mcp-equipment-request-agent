@@ -16,7 +16,6 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,13 +25,20 @@ from dotenv import load_dotenv
 
 from agent.accommodation import detect_accommodation_need
 from agent.mcp_client import MCPClient
-from agent.reflection import normalize_final, print_reflection, reflect
+from agent.reflection import (
+    DECISIONS,
+    ELIGIBILITY_TOOL,
+    FLAG_TOOL,
+    LLM,
+    flagged_tickets,
+    latest_eligibility,
+    normalize_final,
+    print_reflection,
+    reflect,
+)
 
 MAX_STEPS = 8
 FINAL_ACTION = "final_answer"
-ELIGIBILITY_TOOL = "check_request_eligibility"
-FLAG_TOOL = "flag_for_human_review"
-DECISIONS = ("approve", "deny", "escalate")
 NO_DECISION_REASON = "agent could not reach a decision"
 
 # reason_code -> rule ID (docs/REQUIREMENTS.md section 3 and R-40), cited in policy_basis.
@@ -50,9 +56,6 @@ RULE_IDS = {
 }
 
 _EMPLOYEE_PREFIX = re.compile(r"^\s*Employee\s+([A-Za-z0-9]+)\s*:\s*(.*)$", re.DOTALL)
-
-# Takes the chat messages, returns the model's raw reply text (expected to be a JSON object).
-LLM = Callable[[list[dict[str, str]]], str]
 
 
 # ---------- request parsing and prompts ----------
@@ -189,16 +192,13 @@ class RunState:
 
     # The ID parsed from "Employee <ID>:"; None if the request has no prefix.
     employee_id: str | None = None
-    # Eligibility results for the requesting employee only (R-43).
-    eligibility_results: list[dict[str, Any]] = field(default_factory=list)
-    ticket_ids: list[str] = field(default_factory=list)
     # Every MCP tool call, as {"tool", "input", "output"}; reflection reads these.
     observations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def check_final_answer(answer: dict[str, Any], state: RunState) -> str | None:
     """Return the rule a final answer breaks, or None if the loop may accept it."""
-    if not state.eligibility_results:
+    if latest_eligibility(state.observations, state.employee_id) is None:
         return f"R-43: call {ELIGIBILITY_TOOL} before giving a final answer."
     decision = answer.get("decision")
     if decision not in DECISIONS:
@@ -207,19 +207,26 @@ def check_final_answer(answer: dict[str, Any], state: RunState) -> str | None:
         if not isinstance(answer.get(key), str) or not answer[key].strip():
             return f"Final answer is missing '{key}'."
     if decision == "escalate":
-        if not state.ticket_ids:
+        tickets = flagged_tickets(state.observations)
+        if not tickets:
             return (
                 f"The decision is escalate but {FLAG_TOOL} has not been called. Call it "
                 "first, then give the final answer with its ticket_id."
             )
         if not isinstance(answer.get("escalation_reason"), str) or not answer["escalation_reason"]:
             return "An escalation needs a plain-language 'escalation_reason' (R-51)."
-        if answer.get("ticket_id") not in state.ticket_ids:
-            return f"ticket_id must be one returned by {FLAG_TOOL}: {', '.join(state.ticket_ids)}."
+        if answer.get("ticket_id") not in tickets:
+            return f"ticket_id must be one returned by {FLAG_TOOL}: {', '.join(tickets)}."
     return None
 
 
 # ---------- printing ----------
+
+
+def show(label: str, value: Any) -> None:
+    """Print a label line, then value as indented JSON."""
+    print(label)
+    print(json.dumps(value, indent=2))
 
 
 def print_step(number: int, thought: str | None, action: str, args: Any, observation: Any) -> None:
@@ -227,8 +234,7 @@ def print_step(number: int, thought: str | None, action: str, args: Any, observa
     print(f"\n----- Step {number} -----")
     print(f"Thought: {thought if thought is not None else '(unparseable reply)'}")
     print(f"Action: {action} {json.dumps(args)}")
-    print("Observation:")
-    print(json.dumps(observation, indent=2))
+    show("Observation:", observation)
 
 
 # ---------- the loop ----------
@@ -241,11 +247,6 @@ class AgentRun:
     final: dict[str, Any]
     observations: list[dict[str, Any]]
     accommodation: dict[str, Any]
-
-
-async def run_agent(request: str, client: MCPClient, llm: LLM) -> dict[str, Any]:
-    """Run the ReAct loop for one request and return the final answer dict."""
-    return (await run_agent_detailed(request, client, llm)).final
 
 
 async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> AgentRun:
@@ -286,8 +287,7 @@ async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> Agent
                 draft = normalize_final(turn["action_input"])
                 print(f"\n----- Step {step} -----")
                 print(f"Thought: {turn['thought']}")
-                print(f"Action: {FINAL_ACTION} (draft)")
-                print(json.dumps(draft, indent=2))
+                show(f"Action: {FINAL_ACTION} (draft)", draft)
                 result = reflect(
                     llm,
                     request,
@@ -305,8 +305,7 @@ async def run_agent_detailed(request: str, client: MCPClient, llm: LLM) -> Agent
                     "error": "Reflection rejected the draft. Fix these and try again: "
                     + " ".join(result.remaining_issues)
                 }
-                print("Observation:")
-                print(json.dumps(observation, indent=2))
+                show("Observation:", observation)
             else:
                 observation = {"error": problem}
                 print_step(step, turn["thought"], FINAL_ACTION, turn["action_input"], observation)
@@ -342,9 +341,6 @@ async def run_tool(
                 ),
                 "result": observation,
             }
-        state.eligibility_results.append(observation)
-    if name == FLAG_TOOL and observation.get("flagged"):
-        state.ticket_ids.append(observation["ticket_id"])
     return observation
 
 
@@ -355,11 +351,8 @@ async def give_up(
     state: RunState,
     accommodation: dict[str, Any],
 ) -> dict[str, Any]:
-    """After MAX_STEPS, escalate to a human, and reflect on that draft like any other.
-
-    If the flag call fails, the answer says no ticket could be created (R-51 is then
-    reported by reflection, and the answer is kept: there is nothing left to retry).
-    """
+    """After MAX_STEPS, flag the request and reflect on the fallback escalation. If the flag
+    fails, the answer says no ticket could be created (kept: there is nothing to retry)."""
     print(f"\nNo valid final answer after {MAX_STEPS} steps; escalating.")
     args = {
         "employee_id": state.employee_id or "UNKNOWN",
@@ -369,8 +362,7 @@ async def give_up(
     flagged = await client.call_tool(FLAG_TOOL, args)
     state.observations.append({"tool": FLAG_TOOL, "input": args, "output": flagged})
     print(f"Action: {FLAG_TOOL} {json.dumps(args)}")
-    print("Observation:")
-    print(json.dumps(flagged, indent=2))
+    show("Observation:", flagged)
 
     if flagged.get("flagged"):
         response = (
@@ -391,8 +383,7 @@ async def give_up(
         "escalation_reason": reason,
         "ticket_id": flagged.get("ticket_id") if flagged.get("flagged") else None,
     }
-    print("Fallback draft:")
-    print(json.dumps(draft, indent=2))
+    show("Fallback draft:", draft)
     result = reflect(
         llm,
         request,
@@ -409,8 +400,7 @@ async def give_up(
 
 def print_final(final: dict[str, Any]) -> None:
     """Print the final answer block."""
-    print("\n===== FINAL ANSWER =====")
-    print(json.dumps(final, indent=2))
+    show("\n===== FINAL ANSWER =====", final)
 
 
 # ---------- OpenAI wiring and CLI ----------
@@ -475,11 +465,9 @@ async def demo_reflection(client: MCPClient, llm: LLM) -> dict[str, Any]:
     ]:
         output = await client.call_tool(name, args)
         observations.append({"tool": name, "input": args, "output": output})
-        print(f"\nObservation from {name} {json.dumps(args)}:")
-        print(json.dumps(output, indent=2))
+        show(f"\nObservation from {name} {json.dumps(args)}:", output)
 
-    print("\nFlawed draft (DEMO):")
-    print(json.dumps(DEMO_FLAWED_DRAFT, indent=2))
+    show("\nFlawed draft (DEMO):", DEMO_FLAWED_DRAFT)
     result = reflect(
         llm, DEMO_REQUEST, DEMO_FLAWED_DRAFT, observations, accommodation["needs_accommodation"]
     )
@@ -503,7 +491,7 @@ async def main(request: str | None, demo: bool = False) -> dict[str, Any]:
         llm = make_openai_llm(model)
         if demo:
             return await demo_reflection(client, llm)
-        return await run_agent(request, client, llm)
+        return (await run_agent_detailed(request, client, llm)).final
 
 
 def cli() -> None:
