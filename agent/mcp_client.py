@@ -18,9 +18,6 @@ from mcp.client.stdio import stdio_client
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# The server never needs these, so they are not passed to its process.
-_SECRET_ENV_VARS = frozenset({"OPENAI_API_KEY"})
-
 
 class MCPClient:
     """Async context manager owning one stdio connection to the equipment-requests server."""
@@ -31,8 +28,7 @@ class MCPClient:
         Args:
             extra_env: Variables to add for the server process (e.g. ESCALATIONS_FILE).
         """
-        env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_VARS}
-        env.update(extra_env or {})
+        env = {**os.environ, **(extra_env or {})}
         self._params = StdioServerParameters(
             command=sys.executable,
             args=["-m", "server.server"],

@@ -174,13 +174,9 @@ def parse_model_turn(raw: str, tool_names: set[str]) -> tuple[dict[str, Any] | N
 
 
 def check_tool_args(tool: dict[str, Any], args: dict[str, Any]) -> str | None:
-    """Return an error if required arguments are missing or unknown ones are given."""
-    schema = tool["input_schema"]
-    properties = set(schema.get("properties", {}))
-    missing = [name for name in schema.get("required", []) if name not in args]
+    """Return an error if unknown arguments are given (the server would silently ignore them)."""
+    properties = set(tool["input_schema"].get("properties", {}))
     unknown = [name for name in args if name not in properties]
-    if missing:
-        return f"{tool['name']} is missing required argument(s): {', '.join(missing)}."
     if unknown:
         return f"{tool['name']} does not accept argument(s): {', '.join(unknown)}."
     return None
@@ -381,7 +377,7 @@ async def give_up(
         "response_to_employee": response,
         "policy_basis": f"Agent stopped after {MAX_STEPS} steps without a valid decision.",
         "escalation_reason": reason,
-        "ticket_id": flagged.get("ticket_id") if flagged.get("flagged") else None,
+        "ticket_id": flagged.get("ticket_id"),
     }
     show("Fallback draft:", draft)
     result = reflect(

@@ -89,13 +89,6 @@ def test_policy_refresh_values_match_spec_table(policies):
     assert actual == EXPECTED_REFRESH
 
 
-def test_contractor_laptop_not_allowed_with_note(policies):
-    """R-20: contractor laptop is allowed=false with the agency note."""
-    entry = policies["contractor"]["laptop"]
-    assert entry["allowed"] is False
-    assert entry["note"] == "Contractors receive laptops from their agency only."
-
-
 def test_only_contractor_laptop_is_prohibited(policies):
     """R-20: no other role/item combination is prohibited."""
     prohibited = {

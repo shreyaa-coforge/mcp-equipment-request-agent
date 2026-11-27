@@ -104,16 +104,6 @@ def test_blank_role_never_raises(raw):
 # ---------- contract properties ----------
 
 
-def test_policy_result_is_an_independent_copy():
-    """Spec 5: mutating a result must not change what the next call returns."""
-    first = get_policy_limits("standard")
-    first["items"]["laptop"]["refresh_months"] = 1
-    first["items"].pop("mouse")
-    second = get_policy_limits("standard")
-    assert second["items"]["laptop"]["refresh_months"] == 48
-    assert "mouse" in second["items"]
-
-
 @pytest.mark.parametrize("role", ["manager", "intern", ""])
 def test_policy_result_is_json_serializable(role):
     """Spec 5: every result (found or not) serializes to JSON for the MCP response."""

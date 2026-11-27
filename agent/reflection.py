@@ -119,11 +119,9 @@ def items_named(text: str) -> set[str]:
 
 def cites_valid_r40(draft: dict[str, Any], observations: list[dict[str, Any]]) -> bool:
     """True for an R-42 escalation: policy_basis cites R-40 and the ticket_id is real."""
-    basis = draft.get("policy_basis")
     return (
         draft.get("decision") == "escalate"
-        and isinstance(basis, str)
-        and basis.strip().startswith("R-40")
+        and draft["policy_basis"].strip().startswith("R-40")
         and draft.get("ticket_id") in flagged_tickets(observations)
     )
 
@@ -339,7 +337,7 @@ def critique_draft(
     ]
     try:
         reply = json.loads(llm(messages))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError:
         return Critique("confirmed", ["Layer 2 reply was not valid JSON; draft kept."], None)
     if not isinstance(reply, dict):
         return Critique("confirmed", ["Layer 2 reply was not a JSON object; draft kept."], None)

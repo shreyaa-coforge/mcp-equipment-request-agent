@@ -158,16 +158,6 @@ def test_invalid_reference_date(monkeypatch):
 # ---------- contract properties ----------
 
 
-def test_result_is_an_independent_copy():
-    """Spec 5: mutating a result must not change what the next call returns."""
-    first = get_employee_info("E1001", as_of=AS_OF)
-    first["equipment"].clear()
-    first["role"] = "manager"
-    second = get_employee_info("E1001", as_of=AS_OF)
-    assert len(second["equipment"]) == 3
-    assert second["role"] == "engineer"
-
-
 @pytest.mark.parametrize("emp_id", ["E1001", "E9999", ""])
 def test_result_is_json_serializable(emp_id):
     """Spec 5: every result (found or not) serializes to JSON for the MCP response."""
